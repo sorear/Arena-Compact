@@ -43,5 +43,15 @@ binary-searched, not hashed.  Fields and formats are real Perl
 objects, to make reification easy; they should not be numerous in
 any event.
 
+Handles
+-------
+
+These are an interesting case, since there are just so many of them.
+Conversely, because users are expected to rebless them, cleaning them
+up is tricky; relying on DESTROY would make dangling references if the
+user screws up, and there's no obvious way to prevent a crash from
+ensuing, so we have to use magic.  Conveniently, the magic structure
+has enough free space to hold the pointer and the hash chain.
+
 
 [1] http://www.iecc.com/gclist/GC-algorithms.html#Jargon

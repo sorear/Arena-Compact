@@ -45,6 +45,20 @@ field_release(void *body, struct format_field *ff)
 
 /**/
 
+#define BIBOP_PAGE_SIZE 4096
+#define BIBOP_ALLOC_GRAN 255
+
+struct format_data;
+
+struct free_header {
+    struct free_header *next;
+};
+
+struct page_header {
+    struct format_data *format;
+    struct page_header *link;
+};
+
 struct format_data
 {
     struct page_header *first_page;
@@ -74,6 +88,57 @@ lookup_field(struct format_data *format, SV *field)
         return 0;
 }
 
+static void *
+format_getbody(struct format_data *format)
+{
+    struct free_header *body = format->free_list;
+    UV wraddr;
+    int i;
+
+    if (body) {
+        format->free_list = body->next;
+        return (void*)body;
+    }
+
+    if (!free_pages) {
+        struct page_header *block;
+
+        Newxc(block, char, (BIBOP_ALLOC_GRAN + 1) * BIBOP_PAGE_SIZE -
+            MEM_ALIGN_BYTES, struct page_header);
+
+        block = INT2PTR(struct page_header *,
+            (PTR2UV(block) + BIBOP_PAGE_SIZE - 1) & ~BIBOP_PAGE_SIZE);
+
+        for (i = 0; i < BIBOP_ALLOC_GRAN; i++) {
+            block[i]->link = free_pages;
+            free_pages = &block[i];
+        }
+    }
+
+    wraddr = PTR2UV(free_pages) + sizeof(struct page_header);
+    free_pages = free_pages->link;
+
+    for (i = 0; i < format->per_page; i++) {
+        struct free_header *object = INT2PTR(struct free_header*, wraddr);
+
+        object->next = format->free_list;
+        format->free_list = object;
+
+        wraddr += format->bytes;
+    }
+
+    return format_getbody(format);
+}
+
+static void
+format_putbody(struct format_data *format, void *body)
+{
+    struct free_header *frh = (struct free_header *)body;
+
+    frh->next = format->free_list;
+    format->free_list = frh;
+}
+
 /* format add/del stuff here */
 
 /**/
@@ -81,11 +146,50 @@ lookup_field(struct format_data *format, SV *field)
 static void
 obj_dehandle(SV *objh, struct format_data **form, void **body)
 {
-    int ptrv;
+    MAGIC *mgp;
+    SV *hobj;
 
-    if (!SvIOK(objh)) goto notobj;
+    SvGMAGIC(objh);
 
-    
+    if (!SvROK(objh))
+        croak("handle must be passed by reference");
+
+    SV *hobj = SvRV(objh);
+
+    if (SvMAGICAL(hobj)) {
+        for (mgp = SvMAGIC(hobj); mgp; mgp = mgp->moremagic) {
+            if (mgp->mg_type == PERL_MAGIC_ext && mgp->mg_len == MAGIC_SIG1 &&
+                    mgp->mg_private == MAGIC_SIG2) {
+                goto foundit; /* want next STEP; */
+            }
+        }
+    }
+
+    croak("handle has incorrect magic");
+
+foundit:
+    *body = (void*) mgp->mg_ptr;
+    *form = INT2PTR(struct format_data **,
+        (PTR2UV(body) & ~(BIBOP_PAGE_SIZE-1)));
+}
+
+static void
+obj_relocate(SV *objh, void *body2)
+{
+    /* no need to muck with hashing, yet */
+    /* also, objh has already been validated */
+    SV *hobj = SvRV(objh);
+    MAGIC *mgp;
+
+    for (mgp = SvMAGIC(hobj); mgp; mgp = mgp->moremagic) {
+        if (mgp->mg_type == PERL_MAGIC_ext && mgp->mg_len == MAGIC_SIG1 &&
+                mgp->mg_private == MAGIC_SIG2) {
+            break;
+        }
+    }
+
+    mgp->mg_ptr = (char*) body2;
+}
 
 static void
 obj_read(SV *out, SV *objh, SV *field)
@@ -128,11 +232,13 @@ obj_write(SV *obj, SV *field, SV *in)
     /* no types, so no need to check for other typeds */
 
     form2 = format_add(format, field);
-    body2 = reformat(body, format, form2);
+    body2 = format_getbody(form2);
+    reformat(body, format, body2, form2);
 
     field_init(body2, lookup_field(form2, field), in);
 
-    obj_relocate(objh, body, body2);
+    obj_relocate(objh, body2);
+    format_putbody(format, body);
 }
 
 static Boolean
@@ -159,11 +265,13 @@ obj_delete(SV *obj, SV *field)
         croak("no such field");
 
     form2 = format_del(format, field);
-    body2 = reformat(body, format, form2);
+    body2 = format_getbody(form2);
+    reformat(body, format, body2, form2);
 
     field_release(body, lookup_field(format, field));
 
-    obj_relocate(objh, body, body2);
+    obj_relocate(objh, body2);
+    format_putbody(format, body);
 }
 
 #if 0
@@ -228,19 +336,6 @@ find_key(SV *name, SV *type, Boolean create, Boolean *created)
  * This doesn't actually have to correspond to the system page size.
  * Which is a good thing, because you can't find that out portably.
  */
-
-#define BIBOP_PAGE_SIZE 4096
-
-struct format_data;
-
-struct free_header {
-    struct free_header *next;
-};
-
-struct page_header {
-    struct format_data *format;
-    struct page_header *link;
-};
 
 struct format_field
 {

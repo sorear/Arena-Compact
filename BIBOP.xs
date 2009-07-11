@@ -150,7 +150,28 @@ static HV *format_cache;
 static HV *format_stash;
 
 static int
-format_destroy(pTHX_ SV *formobj, MAGIC *mg);
+format_destroy(pTHX_ SV *formobj, MAGIC *mg)
+{
+    struct format_data *f = (struct format_data *)mg->mg_ptr;
+
+    /* since each object holds a reference to the format, all of our
+       pages must be empty */
+    struct page_header *p = f->first_page;
+    int i;
+
+    while (p) {
+        struct page_header *p2 = p->link;
+        p->link = free_pages;
+        free_pages = p;
+        p = p2;
+    }
+
+    for (i = f->chaff; i < (1 << f->order); i++) {
+        SvREFCNT_dec(f->fields[i].key);
+    }
+
+    return 0;
+}
 
 static MGVTBL format_magic = { 0, 0, 0, 0, format_destroy };
 
@@ -174,6 +195,7 @@ static char *
 format_getbody(struct format_data *format)
 {
     struct free_header *body = format->free_list;
+    struct page_header *page;
     UV wraddr;
     int i, end_page;
 
@@ -181,7 +203,7 @@ format_getbody(struct format_data *format)
 
     if (body) {
         format->free_list = body->next;
-        return (void*)body;
+        return (char*)body;
     }
 
     if (!free_pages) {
@@ -199,8 +221,11 @@ format_getbody(struct format_data *format)
         }
     }
 
-    wraddr = PTR2UV(free_pages) + sizeof(struct page_header);
+    wraddr = PTR2UV(page) + sizeof(struct page_header);
+    page = free_pages;
     free_pages = free_pages->link;
+    page->link = format->first_page;
+    format->first_page = page;
 
     end_page = wraddr + ((BIBOP_PAGE_SIZE - sizeof(struct page_header)) /
         format->bytes) * format->bytes;

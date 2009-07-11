@@ -2,6 +2,43 @@
 #include "perl.h"
 #include "XSUB.h"
 
+/*
+ * This module requires two things that aren't quite ANSI-implementable,
+ * but can be done on all normal computers with a bit of undefined
+ * behavior.  If your computer is not normal (if (char*)(i+1) !=
+ * ((char*)i)+1, or if "properly aligned" does not refer being a multiple
+ * of some power of two in char-difference representation), you will need to
+ * read and tweak the following.
+ */
+
+/*
+ * We need pages, which are fairly large objects with the property that
+ * a pointer to any interior char can be mapped to a pointer to the whole.
+ * Pages must have at least as much alignment as any other used type, and
+ * it must be possible to page-align an arbitrary pointer.
+ */
+#define BIBOP_PAGE_SIZE 4096
+#define PAGE2START(p) INT2PTR(char *, (PTR2UV(p) & ~4095))
+
+/*
+ * We also need the ability to do struct-ish layout at runtime.  This
+ * is actually portable, if we know how many alignment bytes to generate.
+ */
+#define DECLASTRUCT_(t) struct bibop_alignify_##t { char x; t val; };
+#define ALIGNOF_(ty) (IV)((char*)(&((struct bibop_alignify_##ty *)0)->val)- \
+    (char*)0)
+
+typedef SV *SVREF;
+
+DECLASTRUCT_(NV)
+DECLASTRUCT_(SVREF)
+DECLASTRUCT_(IV)
+DECLASTRUCT_(char)
+DECLASTRUCT_(U16)
+DECLASTRUCT_(U32)
+
+#define PAD(ofs, ty) ((ofs + ALIGNOF_(ty) - 1) & ~ALIGNOF_(ty))
+
 /* first keys, then formats, then pages, then fields, then objects */
 
 /* no keys needed yet - without types they can just be scalars */

@@ -147,6 +147,12 @@ struct format_data
 
 struct format_data *null_format;
 static HV *format_cache;
+static HV *format_stash;
+
+static int
+format_destroy(pTHX_ SV *formobj, MAGIC *mg);
+
+static MGVTBL format_magic = { 0, 0, 0, 0, format_destroy };
 
 static struct format_field *
 lookup_field(struct format_data *format, SV *field)
@@ -279,13 +285,13 @@ format_add(struct format_data *base, SV *field)
 
     for (i = 0; i < base->count &&
             base->fields[i + base->chaff].key < field; i++) {
-        nfields[i] = base->fields[i + base->chaff];
+        nfields[i] = base->fields[i + base->chaff].key;
     }
 
     nfields[i++] = field;
 
     for (; i < (base->count + 1); i++) {
-        nfields[i] = base->fields[i + base->chaff - 1];
+        nfields[i] = base->fields[i + base->chaff - 1].key;
     }
 
     return format_find(nfields, base->count+1);

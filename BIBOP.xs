@@ -69,33 +69,33 @@ struct format_field {
 };
 
 static void
-field_get(SV *out, void *body, struct format_field *ff)
+field_get(SV *out, char *body, struct format_field *ff)
 {
-    SV *ourscalar = *(INT2PTR(SV **, PTR2UV(body) + ff->offset));
+    SV *ourscalar = *(SV **)(body + ff->offset);
 
     SvSetSV(out, ourscalar);
 }
 
 static void
-field_put(void *body, struct format_field *ff, SV *in)
+field_put(char *body, struct format_field *ff, SV *in)
 {
-    SV *ourscalar = *(INT2PTR(SV **, PTR2UV(body) + ff->offset));
+    SV *ourscalar = *(SV **)(body + ff->offset);
 
     SvSetSV(ourscalar, in);
 }
 
 static void
-field_init(void *body, struct format_field *ff, SV *in)
+field_init(char *body, struct format_field *ff, SV *in)
 {
-    SV **ourscalar = INT2PTR(SV **, PTR2UV(body) + ff->offset);
+    SV **ourscalar = (SV **)(body + ff->offset);
 
     *ourscalar = newSVsv(in);
 }
 
 static void
-field_release(void *body, struct format_field *ff)
+field_release(char *body, struct format_field *ff)
 {
-    SV *ourscalar = *(INT2PTR(SV **, PTR2UV(body) + ff->offset));
+    SV *ourscalar = *(SV **)(body + ff->offset);
 
     SvREFCNT_dec(ourscalar);
 }
@@ -149,7 +149,7 @@ lookup_field(struct format_data *format, SV *field)
         return 0;
 }
 
-static void *
+static char *
 format_getbody(struct format_data *format)
 {
     struct free_header *body = format->free_list;
@@ -193,7 +193,7 @@ format_getbody(struct format_data *format)
 }
 
 static void
-format_putbody(struct format_data *format, void *body)
+format_putbody(struct format_data *format, char *body)
 {
     struct free_header *frh = (struct free_header *)body;
 
@@ -202,10 +202,10 @@ format_putbody(struct format_data *format, void *body)
 }
 
 static void
-format_releaseall(struct format_data *form, void *body);
+format_releaseall(struct format_data *form, char *body);
 
 static struct format_data *
-format_ofbody(void *body);
+format_ofbody(char *body);
 
 static struct format_data *
 format_add(struct format_data *base, SV *field);
@@ -220,7 +220,7 @@ static HV *objh_stash;
 static int
 objh_destroy(pTHX_ SV *objh, MAGIC *mg)
 {
-    void *body = mg->mg_ptr;
+    char *body = mg->mg_ptr;
     struct format_data *format = format_ofbody(body);
 
     format_releaseall(format, body);
@@ -230,25 +230,24 @@ objh_destroy(pTHX_ SV *objh, MAGIC *mg)
 static MGVTBL objh_magicness = { 0, 0, 0, 0, objh_destroy };
 
 static void
-obj_dehandle(SV *objh, struct format_data **form, void **body)
+obj_dehandle(SV *objh, struct format_data **form, char **body)
 {
     *body = magicref_by_vtbl(objh, &objh_magicness, "node handle")->mg_ptr;
     *form = format_ofbody(*body);
 }
 
 static void
-obj_relocate(SV *objh, void *body2)
+obj_relocate(SV *objh, char *body2)
 {
     /* no need to muck with hashing, yet */
-    magicref_by_vtbl(objh, &objh_magicness, "node handle")->mg_ptr =
-        (char*) body2;
+    magicref_by_vtbl(objh, &objh_magicness, "node handle")->mg_ptr = body2;
 }
 
 /* creates a reference */
 static SV *
 objh_new_empty()
 {
-    void *body = format_getbody(null_format);
+    char *body = format_getbody(null_format);
     SV *self = newSV(0);
     SV *ref = newRV_noinc(self);
 
@@ -264,7 +263,7 @@ obj_read(SV *out, SV *objh, SV *field)
 {
     struct format_data *format;
     struct format_field *ff;
-    void *body;
+    char *body;
 
     obj_dehandle(objh, &format, &body);
 
@@ -285,9 +284,9 @@ obj_write(SV *obj, SV *field, SV *in)
 {
     struct format_data *format;
     struct format_field *ff;
-    void *body;
+    char *body;
     struct format_data *form2;
-    void *body2;
+    char *body2;
 
     obj_dehandle(obj, &format, &body);
     ff = lookup_field(format, field);
@@ -313,7 +312,7 @@ static int
 obj_exists(SV *objh, SV *field)
 {
     struct format_data *format;
-    void *body;
+    char *body;
 
     obj_dehandle(objh, &format, &body);
     return lookup_field(format, field) ? 1 : 0;
@@ -323,9 +322,9 @@ static void
 obj_delete(SV *obj, SV *field)
 {
     struct format_data *format;
-    void *body;
+    char *body;
     struct format_data *form2;
-    void *body2;
+    char *body2;
 
     obj_dehandle(obj, &format, &body);
 

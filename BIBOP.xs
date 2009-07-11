@@ -138,6 +138,7 @@ struct format_data
     int order; /* log2 of field count */
     int bytes; /* bytes per object */
     int count;
+    int chaff; /* initial padding */
 
     SV *sv;
 
@@ -243,13 +244,11 @@ format_find(SV **fields, int nfields)
         if (form->count != nfields)
             goto bad;
 
-        chaff = (1 << form->order) - nfields;
-
-        for (i = 0; i < chaff; i++)
+        for (i = 0; i < form->chaff; i++)
             if (form->fields[i].key != 0)
                 goto bad;
         for (i = 0; i < nfields; i++)
-            if (form->fields[i+chaff].key != fields[i])
+            if (form->fields[i+form->chaff].key != fields[i])
                 goto bad;
 
         return form;
@@ -270,11 +269,43 @@ bad:
 }
 
 static struct format_data *
-format_add(struct format_data *base, SV *field);
+format_add(struct format_data *base, SV *field)
+{
+    SV** nfields;
+    int i;
+
+    Newx(nfields, base->count + 1, SV *);
+    SAVEFREEPV(nfields);
+
+    for (i = 0; i < base->count &&
+            base->fields[i + base->chaff].key < field; i++) {
+        nfields[i] = base->fields[i + base->chaff];
+    }
+
+    nfields[i++] = field;
+
+    for (; i < (base->count + 1); i++) {
+        nfields[i] = base->fields[i + base->chaff - 1];
+    }
+
+    return format_find(nfields, base->count+1);
+}
 
 static struct format_data *
-format_del(struct format_data *base, SV *field);
+format_del(struct format_data *base, SV *field)
+{
+    SV **nfields;
+    int i, j;
+    Newx(nfields, base->count - 1, SV *);
+    SAVEFREEPV(nfields);
 
+    for (i = 0, j = 0; i < base->count; i++) {
+        if (base->fields[i + base->chaff].key != field)
+            nfields[j++] = base->fields[i + base->chaff].key;
+    }
+
+    return format_find(nfields, base->count-1);
+}
 
 /**/
 

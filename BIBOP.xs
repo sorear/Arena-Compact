@@ -39,7 +39,27 @@ DECLASTRUCT_(U32)
 
 #define PAD(ofs, ty) ((ofs + ALIGNOF_(ty) - 1) & ~ALIGNOF_(ty))
 
-/* first keys, then formats, then pages, then fields, then objects */
+/**** generic perly stuff ****/
+static MAGIC *
+magicref_by_vtbl(SV *objh, MGVTBL *v, const char *name)
+{
+    MAGIC *mgp;
+
+    SvGMAGIC(objh);
+
+    if (!SvROK(objh))
+        croak("%s must be a reference", name);
+
+    objh = SvRV(objh);
+
+    if (SvMAGICAL(objh))
+        for (mgp = SvMAGIC(objh); mgp; mgp = mgp->mg_moremagic)
+            if (mgp->mg_virtual == v)
+                return mgp;
+
+    croak("%s has incorrect magic", name);
+}
+
 
 /* no keys needed yet - without types they can just be scalars */
 
@@ -212,28 +232,7 @@ static MGVTBL objh_magicness = { 0, 0, 0, 0, objh_destroy };
 static void
 obj_dehandle(SV *objh, struct format_data **form, void **body)
 {
-    MAGIC *mgp;
-    SV *hobj;
-
-    SvGMAGIC(objh);
-
-    if (!SvROK(objh))
-        croak("handle must be passed by reference");
-
-    hobj = SvRV(objh);
-
-    if (SvMAGICAL(hobj)) {
-        for (mgp = SvMAGIC(hobj); mgp; mgp = mgp->mg_moremagic) {
-            if (mgp->mg_virtual == &objh_magicness) {
-                goto foundit; /* want next STEP; */
-            }
-        }
-    }
-
-    croak("handle has incorrect magic");
-
-foundit:
-    *body = (void*) mgp->mg_ptr;
+    *body = magicref_by_vtbl(objh, &objh_magicness, "node handle")->mg_ptr;
     *form = format_ofbody(*body);
 }
 
@@ -241,17 +240,8 @@ static void
 obj_relocate(SV *objh, void *body2)
 {
     /* no need to muck with hashing, yet */
-    /* also, objh has already been validated */
-    SV *hobj = SvRV(objh);
-    MAGIC *mgp;
-
-    for (mgp = SvMAGIC(hobj); mgp; mgp = mgp->mg_moremagic) {
-        if (mgp->mg_virtual == &objh_magicness) {
-            break;
-        }
-    }
-
-    mgp->mg_ptr = (char*) body2;
+    magicref_by_vtbl(objh, &objh_magicness, "node handle")->mg_ptr =
+        (char*) body2;
 }
 
 /* creates a reference */

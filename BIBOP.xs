@@ -59,18 +59,22 @@ struct page_header {
     struct page_header *link;
 };
 
+static struct page_header *free_pages;
+
 struct format_data
 {
     struct page_header *first_page;
     struct free_header *free_list;
 
     int order; /* log2 of field count */
-    int size; /* bytes per object */
+    int bytes; /* bytes per object */
 
     SV *format_sv;
 
     struct format_field fields[1];
 };
+
+struct format_data *null_format;
 
 static struct format_field *
 lookup_field(struct format_data *format, SV *field)
@@ -93,7 +97,7 @@ format_getbody(struct format_data *format)
 {
     struct free_header *body = format->free_list;
     UV wraddr;
-    int i;
+    int i, end_page;
 
     if (body) {
         format->free_list = body->next;
@@ -103,14 +107,14 @@ format_getbody(struct format_data *format)
     if (!free_pages) {
         struct page_header *block;
 
-        Newxc(block, char, (BIBOP_ALLOC_GRAN + 1) * BIBOP_PAGE_SIZE -
-            MEM_ALIGN_BYTES, struct page_header);
+        Newxc(block, (BIBOP_ALLOC_GRAN + 1) * BIBOP_PAGE_SIZE -
+            MEM_ALIGNBYTES, char, struct page_header);
 
         block = INT2PTR(struct page_header *,
             (PTR2UV(block) + BIBOP_PAGE_SIZE - 1) & ~BIBOP_PAGE_SIZE);
 
         for (i = 0; i < BIBOP_ALLOC_GRAN; i++) {
-            block[i]->link = free_pages;
+            block[i].link = free_pages;
             free_pages = &block[i];
         }
     }
@@ -118,13 +122,14 @@ format_getbody(struct format_data *format)
     wraddr = PTR2UV(free_pages) + sizeof(struct page_header);
     free_pages = free_pages->link;
 
-    for (i = 0; i < format->per_page; i++) {
+    end_page = wraddr + ((BIBOP_PAGE_SIZE - sizeof(struct page_header)) /
+        format->bytes) * format->bytes;
+
+    for (; wraddr < end_page; wraddr += format->bytes) {
         struct free_header *object = INT2PTR(struct free_header*, wraddr);
 
         object->next = format->free_list;
         format->free_list = object;
-
-        wraddr += format->bytes;
     }
 
     return format_getbody(format);
@@ -139,12 +144,21 @@ format_putbody(struct format_data *format, void *body)
     format->free_list = frh;
 }
 
-/* format add/del stuff here */
+static struct format_data *
+format_ofbody(void *body);
+
+static struct format_data *
+format_add(struct format_data *base, SV *field);
+
+static struct format_data *
+format_del(struct format_data *base, SV *field);
 
 /**/
 
+static HV *objh_stash;
+
 static int
-objh_destroy(SV *objh, MAGIC *mg)
+objh_destroy(pTHX_ SV *objh, MAGIC *mg)
 {
     void *body = mg->mg_ptr;
     struct format_data *format = format_ofbody(body);
@@ -152,7 +166,7 @@ objh_destroy(SV *objh, MAGIC *mg)
     format_putbody(format, body);
 }
 
-static objh_magicness = { 0, 0, 0, 0, objh_destroy };
+static MGVTBL objh_magicness = { 0, 0, 0, 0, objh_destroy };
 
 static void
 obj_dehandle(SV *objh, struct format_data **form, void **body)
@@ -165,10 +179,10 @@ obj_dehandle(SV *objh, struct format_data **form, void **body)
     if (!SvROK(objh))
         croak("handle must be passed by reference");
 
-    SV *hobj = SvRV(objh);
+    hobj = SvRV(objh);
 
     if (SvMAGICAL(hobj)) {
-        for (mgp = SvMAGIC(hobj); mgp; mgp = mgp->moremagic) {
+        for (mgp = SvMAGIC(hobj); mgp; mgp = mgp->mg_moremagic) {
             if (mgp->mg_virtual == &objh_magicness) {
                 goto foundit; /* want next STEP; */
             }
@@ -179,8 +193,7 @@ obj_dehandle(SV *objh, struct format_data **form, void **body)
 
 foundit:
     *body = (void*) mgp->mg_ptr;
-    *form = INT2PTR(struct format_data **,
-        (PTR2UV(body) & ~(BIBOP_PAGE_SIZE-1)));
+    *form = format_ofbody(*body);
 }
 
 static void
@@ -191,7 +204,7 @@ obj_relocate(SV *objh, void *body2)
     SV *hobj = SvRV(objh);
     MAGIC *mgp;
 
-    for (mgp = SvMAGIC(hobj); mgp; mgp = mgp->moremagic) {
+    for (mgp = SvMAGIC(hobj); mgp; mgp = mgp->mg_moremagic) {
         if (mgp->mg_virtual == &objh_magicness) {
             break;
         }
@@ -244,7 +257,7 @@ obj_write(SV *obj, SV *field, SV *in)
     struct format_data *form2;
     void *body2;
 
-    obj_dehandle(objh, &format, &body);
+    obj_dehandle(obj, &format, &body);
     ff = lookup_field(format, field);
 
     if (ff) {
@@ -260,11 +273,11 @@ obj_write(SV *obj, SV *field, SV *in)
 
     field_init(body2, lookup_field(form2, field), in);
 
-    obj_relocate(objh, body2);
+    obj_relocate(obj, body2);
     format_putbody(format, body);
 }
 
-static Boolean
+static int
 obj_exists(SV *objh, SV *field)
 {
     struct format_data *format;
@@ -282,7 +295,7 @@ obj_delete(SV *obj, SV *field)
     struct format_data *form2;
     void *body2;
 
-    obj_dehandle(objh, &format, &body);
+    obj_dehandle(obj, &format, &body);
 
     if (!lookup_field(format, field))
         croak("no such field");
@@ -293,7 +306,7 @@ obj_delete(SV *obj, SV *field)
 
     field_release(body, lookup_field(format, field));
 
-    obj_relocate(objh, body2);
+    obj_relocate(obj, body2);
     format_putbody(format, body);
 }
 

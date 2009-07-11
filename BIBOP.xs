@@ -60,7 +60,19 @@ magicref_by_vtbl(SV *objh, MGVTBL *v, const char *name)
     croak("%s has incorrect magic", name);
 }
 
+static SV *
+makemagicref(MGVTBL *v, HV *stash, SV *obp, char *chp, U32 size)
+{
+    SV *self = newSV(0);
+    SV *ref = newRV_noinc(self);
+    SAVEFREESV(ref);
 
+    sv_magicext(self, obp, PERL_MAGIC_ext, v, chp, size);
+
+    sv_bless(ref, stash);
+
+    return ref;
+}
 /* no keys needed yet - without types they can just be scalars */
 
 struct format_field {
@@ -125,13 +137,15 @@ struct format_data
 
     int order; /* log2 of field count */
     int bytes; /* bytes per object */
+    int count;
 
-    SV *format_sv;
+    SV *sv;
 
     struct format_field fields[1];
 };
 
 struct format_data *null_format;
+static HV *format_cache;
 
 static struct format_field *
 lookup_field(struct format_data *format, SV *field)
@@ -155,6 +169,8 @@ format_getbody(struct format_data *format)
     struct free_header *body = format->free_list;
     UV wraddr;
     int i, end_page;
+
+    SvREFCNT_inc(format->sv);
 
     if (body) {
         format->free_list = body->next;
@@ -199,6 +215,8 @@ format_putbody(struct format_data *format, char *body)
 
     frh->next = format->free_list;
     format->free_list = frh;
+
+    SvREFCNT_dec(format->sv);
 }
 
 static void
@@ -208,10 +226,55 @@ static struct format_data *
 format_ofbody(char *body);
 
 static struct format_data *
+format_build(SV **fields, int nfields);
+
+static struct format_data *
+format_find(SV **fields, int nfields)
+{
+    SV** he = hv_fetch(format_cache, (char*)fields, nfields*sizeof(SV*), 0);
+    SV *ref;
+    struct format_data *form;
+    int i, chaff;
+
+    if (he) {
+        form = (struct format_data *)
+            magicref_by_vtbl(*he, &format_magic, "format cache entry")->mg_ptr;
+
+        if (form->count != nfields)
+            goto bad;
+
+        chaff = (1 << form->order) - nfields;
+
+        for (i = 0; i < chaff; i++)
+            if (form->fields[i].key != 0)
+                goto bad;
+        for (i = 0; i < nfields; i++)
+            if (form->fields[i+chaff].key != fields[i])
+                goto bad;
+
+        return form;
+bad:
+        croak("inconsistency in format cache");
+    }
+
+    form = format_build(fields, nfields);
+
+    ref = makemagicref(&format_magic, format_stash, 0, (char*)form, 0);
+    form->sv = SvRV(ref);
+
+    if (!hv_store(format_cache, (char*)fields, nfields*sizeof(SV*), ref, 0))
+        croak("store into format cache denied?!?");
+    SvREFCNT_inc(ref);
+
+    return form;
+}
+
+static struct format_data *
 format_add(struct format_data *base, SV *field);
 
 static struct format_data *
 format_del(struct format_data *base, SV *field);
+
 
 /**/
 
@@ -248,14 +311,7 @@ static SV *
 objh_new_empty()
 {
     char *body = format_getbody(null_format);
-    SV *self = newSV(0);
-    SV *ref = newRV_noinc(self);
-
-    MAGIC *mg = sv_magicext(self, 0, PERL_MAGIC_ext, &objh_magicness, body, 0);
-
-    sv_bless(ref, objh_stash);
-
-    return ref;
+    return makemagicref(&objh_magicness, objh_stash, 0, body, 0);
 }
 
 static void

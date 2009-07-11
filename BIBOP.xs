@@ -144,6 +144,9 @@ format_putbody(struct format_data *format, void *body)
     format->free_list = frh;
 }
 
+static void
+format_releaseall(struct format_data *form, void *body);
+
 static struct format_data *
 format_ofbody(void *body);
 
@@ -163,6 +166,7 @@ objh_destroy(pTHX_ SV *objh, MAGIC *mg)
     void *body = mg->mg_ptr;
     struct format_data *format = format_ofbody(body);
 
+    format_releaseall(format, body);
     format_putbody(format, body);
 }
 
@@ -213,6 +217,7 @@ obj_relocate(SV *objh, void *body2)
     mgp->mg_ptr = (char*) body2;
 }
 
+/* creates a reference */
 static SV *
 objh_new_empty()
 {

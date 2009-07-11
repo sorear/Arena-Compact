@@ -143,6 +143,17 @@ format_putbody(struct format_data *format, void *body)
 
 /**/
 
+static int
+objh_destroy(SV *objh, MAGIC *mg)
+{
+    void *body = mg->mg_ptr;
+    struct format_data *format = format_ofbody(body);
+
+    format_putbody(format, body);
+}
+
+static objh_magicness = { 0, 0, 0, 0, objh_destroy };
+
 static void
 obj_dehandle(SV *objh, struct format_data **form, void **body)
 {
@@ -158,8 +169,7 @@ obj_dehandle(SV *objh, struct format_data **form, void **body)
 
     if (SvMAGICAL(hobj)) {
         for (mgp = SvMAGIC(hobj); mgp; mgp = mgp->moremagic) {
-            if (mgp->mg_type == PERL_MAGIC_ext && mgp->mg_len == MAGIC_SIG1 &&
-                    mgp->mg_private == MAGIC_SIG2) {
+            if (mgp->mg_virtual == &objh_magicness) {
                 goto foundit; /* want next STEP; */
             }
         }
@@ -182,13 +192,26 @@ obj_relocate(SV *objh, void *body2)
     MAGIC *mgp;
 
     for (mgp = SvMAGIC(hobj); mgp; mgp = mgp->moremagic) {
-        if (mgp->mg_type == PERL_MAGIC_ext && mgp->mg_len == MAGIC_SIG1 &&
-                mgp->mg_private == MAGIC_SIG2) {
+        if (mgp->mg_virtual == &objh_magicness) {
             break;
         }
     }
 
     mgp->mg_ptr = (char*) body2;
+}
+
+static SV *
+objh_new_empty()
+{
+    void *body = format_getbody(null_format);
+    SV *self = newSV(0);
+    SV *ref = newRV_noinc(self);
+
+    MAGIC *mg = sv_magicext(self, 0, PERL_MAGIC_ext, &objh_magicness, body, 0);
+
+    sv_bless(ref, objh_stash);
+
+    return ref;
 }
 
 static void

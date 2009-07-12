@@ -53,5 +53,28 @@ user screws up, and there's no obvious way to prevent a crash from
 ensuing, so we have to use magic.  Conveniently, the magic structure
 has enough free space to hold the pointer and the hash chain.
 
+Future
+------
+
+- Keys as real cached objects
+- Types other than scalar
+- Pragmatic fields
+- Ephemeral handles
+- Derived/parameterized types
+- Lists
+- User-defined types
+- MooseX
+- Garbage collector (to save on RC bits)
+- Reified formats for one-stop new
+- Immutability
+- XS API?
+- Blessing and reblessing
+- Sub-byte fields
+- Statistics
+- Compaction
+- mummap
+- Storage?
+- Hashes?
+
 
 [1] http://www.iecc.com/gclist/GC-algorithms.html#Jargon

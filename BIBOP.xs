@@ -1,6 +1,8 @@
 #include "EXTERN.h"
 #include "perl.h"
 #include "XSUB.h"
+#define NEED_newRV_noinc
+#include "ppport.h"
 
 /*
  * This module requires two things that aren't quite ANSI-implementable,
@@ -66,15 +68,15 @@ static SV *
 makemagicref(MGVTBL *v, HV *stash, SV *obp, char *chp, U32 size)
 {
     SV *self = newSV(0);
-    SV *ref = newRV_noinc(self);
-    SAVEFREESV(ref);
+    SV *sref = newRV_noinc(self);
+    SAVEFREESV(sref);
 
     sv_magic(self, obp, PERL_MAGIC_ext, chp, size);
     SvMAGIC(self)->mg_virtual = v;
 
-    sv_bless(ref, stash);
+    sv_bless(sref, stash);
 
-    return ref;
+    return sref;
 }
 /* no keys needed yet - without types they can just be scalars */
 
@@ -268,11 +270,11 @@ format_putbody(struct format_data *format, char *body)
 }
 
 static void
-format_releaseall(struct format_data *form, char *body)
+format_releaseall(struct format_data *frm, char *body)
 {
     int i;
-    for (i = form->chaff; i < form->chaff + form->count; i++) {
-        field_release(body, &form->fields[i]);
+    for (i = frm->chaff; i < frm->chaff + frm->count; i++) {
+        field_release(body, &frm->fields[i]);
     }
 }
 
@@ -308,76 +310,76 @@ static struct format_data *
 format_build(SV **fields, int nfields)
 {
     int slots, order, i, chaff;
-    struct format_data *form;
+    struct format_data *frm;
 
     for (order = 0, slots = 1; slots < nfields; slots <<= 1, order++);
 
-    Newxc(form, sizeof(struct format_data) + (slots - 1) *
+    Newxc(frm, sizeof(struct format_data) + (slots - 1) *
         sizeof(struct format_field), char, struct format_data);
 
-    chaff = form->chaff = slots - nfields;
+    chaff = frm->chaff = slots - nfields;
 
     for (i = 0; i < chaff; i++)
-        form->fields[i].key = 0;
+        frm->fields[i].key = 0;
 
-    form->bytes = 0;
+    frm->bytes = 0;
     /* for now, just use consequtive addresses with no padding */
     for (i = 0; i < nfields; i++) {
-        form->fields[i + chaff].key = fields[i];
-        form->fields[i + chaff].offset = form->bytes;
-        form->bytes += sizeof(SV*);
+        frm->fields[i + chaff].key = fields[i];
+        frm->fields[i + chaff].offset = frm->bytes;
+        frm->bytes += sizeof(SV*);
     }
 
     /* leave room for a freelist pointer */
-    if (form->bytes < sizeof(struct free_header))
-        form->bytes = sizeof(struct free_header);
+    if (frm->bytes < sizeof(struct free_header))
+        frm->bytes = sizeof(struct free_header);
 
-    form->order = order;
-    form->count = nfields;
+    frm->order = order;
+    frm->count = nfields;
 
-    form->free_list = 0;
-    form->first_page = 0;
+    frm->free_list = 0;
+    frm->first_page = 0;
 
-    return form;
+    return frm;
 }
 
 static struct format_data *
 format_find(SV **fields, int nfields)
 {
     SV** he = hv_fetch(format_cache, (char*)fields, nfields*sizeof(SV*), 0);
-    SV *ref;
-    struct format_data *form;
+    SV *fref;
+    struct format_data *frm;
     int i;
 
     if (he) {
-        form = (struct format_data *)
+        frm = (struct format_data *)
             magicref_by_vtbl(*he, &format_magic, "format cache entry")->mg_ptr;
 
-        if (form->count != nfields)
+        if (frm->count != nfields)
             goto bad;
 
-        for (i = 0; i < form->chaff; i++)
-            if (form->fields[i].key != 0)
+        for (i = 0; i < frm->chaff; i++)
+            if (frm->fields[i].key != 0)
                 goto bad;
         for (i = 0; i < nfields; i++)
-            if (form->fields[i+form->chaff].key != fields[i])
+            if (frm->fields[i+frm->chaff].key != fields[i])
                 goto bad;
 
-        return form;
+        return frm;
 bad:
         croak("inconsistency in format cache");
     }
 
-    form = format_build(fields, nfields);
+    frm = format_build(fields, nfields);
 
-    ref = makemagicref(&format_magic, format_stash, 0, (char*)form, 0);
-    form->sv = SvRV(ref);
+    fref = makemagicref(&format_magic, format_stash, 0, (char*)frm, 0);
+    frm->sv = SvRV(fref);
 
-    if (!hv_store(format_cache, (char*)fields, nfields*sizeof(SV*), ref, 0))
+    if (!hv_store(format_cache, (char*)fields, nfields*sizeof(SV*), fref, 0))
         croak("store into format cache denied?!?");
-    SvREFCNT_inc(ref);
+    SvREFCNT_inc(fref);
 
-    return form;
+    return frm;
 }
 
 static struct format_data *
@@ -438,10 +440,10 @@ objh_destroy(pTHX_ SV *objh, MAGIC *mg)
 static MGVTBL objh_magicness = { 0, 0, 0, 0, objh_destroy };
 
 static void
-obj_dehandle(SV *objh, struct format_data **form, char **body)
+obj_dehandle(SV *objh, struct format_data **frm, char **body)
 {
     *body = magicref_by_vtbl(objh, &objh_magicness, "node handle")->mg_ptr;
-    *form = format_ofbody(*body);
+    *frm = format_ofbody(*body);
 }
 
 static void

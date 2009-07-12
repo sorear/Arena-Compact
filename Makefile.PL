@@ -1,9 +1,13 @@
 use inc::Module::Install;
 
 name     'BIBOP';
-all_from 'lib//BIBOP.pm';
+all_from 'lib/BIBOP.pm';
 
-build_requires 'Test::More';
+ppport;
+
+test_requires 'Test::More';
+test_requires 'Test::Exception';
+test_requires 'Task::Weaken';
 
 WriteAll;
 

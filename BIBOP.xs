@@ -69,7 +69,8 @@ makemagicref(MGVTBL *v, HV *stash, SV *obp, char *chp, U32 size)
     SV *ref = newRV_noinc(self);
     SAVEFREESV(ref);
 
-    sv_magicext(self, obp, PERL_MAGIC_ext, v, chp, size);
+    sv_magic(self, obp, PERL_MAGIC_ext, chp, size);
+    SvMAGIC(self)->mg_virtual = v;
 
     sv_bless(ref, stash);
 

@@ -18,7 +18,9 @@
  * it must be possible to page-align an arbitrary pointer.
  */
 #define BIBOP_PAGE_SIZE 4096
+#define PAGE_LOG2 12
 #define PAGE2START(p) INT2PTR(char *, (PTR2UV(p) & ~4095))
+#define PAGESKIP(p) ((0 - PTR2UV(p)) & 4095)
 
 /*
  * We also need the ability to do struct-ish layout at runtime.  This
@@ -114,7 +116,6 @@ field_release(char *body, struct format_field *ff)
 
 /**/
 
-#define BIBOP_PAGE_SIZE 4096
 #define BIBOP_ALLOC_GRAN 255
 
 struct format_data;
@@ -208,14 +209,15 @@ format_getbody(struct format_data *format)
 
     if (!free_pages) {
         struct page_header *block;
+        int bytes = (BIBOP_ALLOC_GRAN + 1) * BIBOP_PAGE_SIZE - MEM_ALIGNBYTES;
+        int skip;
+        Newxc(block, bytes, char, struct page_header);
 
-        Newxc(block, (BIBOP_ALLOC_GRAN + 1) * BIBOP_PAGE_SIZE -
-            MEM_ALIGNBYTES, char, struct page_header);
+        skip = PAGESKIP(block);
+        block += skip;
+        bytes -= skip;
 
-        block = INT2PTR(struct page_header *,
-            (PTR2UV(block) + BIBOP_PAGE_SIZE - 1) & ~BIBOP_PAGE_SIZE);
-
-        for (i = 0; i < BIBOP_ALLOC_GRAN; i++) {
+        for (i = 0; i < bytes >> PAGE_LOG2; i++) {
             block[i].link = free_pages;
             free_pages = &block[i];
         }
@@ -255,7 +257,10 @@ static void
 format_releaseall(struct format_data *form, char *body);
 
 static struct format_data *
-format_ofbody(char *body);
+format_ofbody(char *body)
+{
+    return ((struct page_header *)PAGE2START(body))->format;
+}
 
 static struct format_data *
 format_build(SV **fields, int nfields);

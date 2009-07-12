@@ -3,9 +3,18 @@ package BIBOP;
 use strict;
 use warnings;
 
-our $VERSION = '0.01';
+BEGIN {
 
+    require DynaLoader;
 
+    our $VERSION = '0.01';
+
+    our @ISA = ('DynaLoader');
+
+    __PACKAGE__->bootstrap();
+
+    undef @ISA; # namespace pollution FTL
+}
 
 1;
 

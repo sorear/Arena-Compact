@@ -47,7 +47,7 @@ magicref_by_vtbl(SV *objh, MGVTBL *v, const char *name)
 {
     MAGIC *mgp;
 
-    SvGMAGIC(objh);
+    SvGETMAGIC(objh);
 
     if (!SvROK(objh))
         croak("%s must be a reference", name);
@@ -114,6 +114,12 @@ field_release(char *body, struct format_field *ff)
     SvREFCNT_dec(ourscalar);
 }
 
+static void
+field_copy(char *body1, int offset1, char *body2, int offset2)
+{
+    *(SV**)(body2+offset2) = *(SV**)(body1+offset1);
+}
+
 /**/
 
 #define BIBOP_ALLOC_GRAN 255
@@ -137,7 +143,7 @@ struct format_data
     struct free_header *free_list;
 
     int order; /* log2 of field count */
-    int bytes; /* bytes per object */
+    size_t bytes; /* bytes per object */
     int count; /* of fields */
     int chaff; /* initial padding */
 
@@ -200,7 +206,8 @@ format_getbody(struct format_data *format)
     struct free_header *body = format->free_list;
     struct page_header *page;
     UV wraddr;
-    int i, end_page;
+    int i;
+    UV end_page;
 
     SvREFCNT_inc(format->sv);
 
@@ -225,8 +232,8 @@ format_getbody(struct format_data *format)
         }
     }
 
-    wraddr = PTR2UV(page) + sizeof(struct page_header);
     page = free_pages;
+    wraddr = PTR2UV(page) + sizeof(struct page_header);
     free_pages = free_pages->link;
     page->link = format->first_page;
     format->first_page = page;
@@ -261,6 +268,26 @@ format_releaseall(struct format_data *form, char *body)
     int i;
     for (i = form->chaff; i <= form->chaff + form->count; i++) {
         field_release(body, &form->fields[i]);
+    }
+}
+
+static void
+reformat(char *body1, struct format_data *form1,
+        char *body2, struct format_data *form2)
+{
+    int p1, slots1, p2, slots2;
+
+    slots1 = 1 << form1->order;
+    slots2 = 1 << form2->order;
+
+    for (p1 = 0, p2 = 0; p1 < slots1 && p2 < slots2; ) {
+        if (form1->fields[p1].key < form2->fields[p2].key)
+            p1++;
+        else if (form1->fields[p1].key > form2->fields[p2].key)
+            p2++;
+        else
+            field_copy(body1, form1->fields[p1].offset,
+                body2, form2->fields[p2].offset);
     }
 }
 
@@ -313,7 +340,7 @@ format_find(SV **fields, int nfields)
     SV** he = hv_fetch(format_cache, (char*)fields, nfields*sizeof(SV*), 0);
     SV *ref;
     struct format_data *form;
-    int i, chaff;
+    int i;
 
     if (he) {
         form = (struct format_data *)
@@ -397,6 +424,8 @@ objh_destroy(pTHX_ SV *objh, MAGIC *mg)
 
     format_releaseall(format, body);
     format_putbody(format, body);
+
+    return 0;
 }
 
 static MGVTBL objh_magicness = { 0, 0, 0, 0, objh_destroy };
@@ -457,7 +486,7 @@ obj_write(SV *obj, SV *field, SV *in)
     ff = lookup_field(format, field);
 
     if (ff) {
-        field_set(body, ff, in);
+        field_put(body, ff, in);
         return;
     }
 
@@ -553,6 +582,10 @@ int
 bexists(objh, field)
         SV *objh
         SV *field
+    CODE:
+        RETVAL = obj_exists(objh, field);
+    OUTPUT:
+        RETVAL
 
 void
 bdelete(objh, field)

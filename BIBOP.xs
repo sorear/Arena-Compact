@@ -249,7 +249,9 @@ format_getbody(struct format_data *format)
         format->free_list = object;
     }
 
-    return format_getbody(format);
+    body = format->free_list;
+    format->free_list = body->next;
+    return (char*)body;
 }
 
 static void

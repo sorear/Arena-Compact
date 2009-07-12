@@ -237,6 +237,7 @@ format_getbody(struct format_data *format)
     wraddr = PTR2UV(page) + sizeof(struct page_header);
     free_pages = free_pages->link;
     page->link = format->first_page;
+    page->format = format;
     format->first_page = page;
 
     end_page = wraddr + ((BIBOP_PAGE_SIZE - sizeof(struct page_header)) /
@@ -269,7 +270,7 @@ static void
 format_releaseall(struct format_data *form, char *body)
 {
     int i;
-    for (i = form->chaff; i <= form->chaff + form->count; i++) {
+    for (i = form->chaff; i < form->chaff + form->count; i++) {
         field_release(body, &form->fields[i]);
     }
 }

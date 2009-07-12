@@ -218,18 +218,18 @@ format_getbody(struct format_data *format)
     }
 
     if (!free_pages) {
-        struct page_header *block;
+        char *block;
         int bytes = (BIBOP_ALLOC_GRAN + 1) * BIBOP_PAGE_SIZE - MEM_ALIGNBYTES;
         int skip;
-        Newxc(block, bytes, char, struct page_header);
+        Newx(block, bytes, char);
 
         skip = PAGESKIP(block);
         block += skip;
         bytes -= skip;
 
-        for (i = 0; i < bytes >> PAGE_LOG2; i++) {
-            block[i].link = free_pages;
-            free_pages = &block[i];
+        for (i = 0; i < bytes; i += BIBOP_PAGE_SIZE) {
+            ((struct page_header *) &block[i])->link = free_pages;
+            free_pages = (struct page_header *)&block[i];
         }
     }
 

@@ -530,7 +530,7 @@ obj_delete(SV *obj, SV *field)
     obj_dehandle(obj, &format, &body);
 
     if (!lookup_field(format, field))
-        croak("no such field");
+        croak("field not found");
 
     form2 = format_del(format, field);
     body2 = format_getbody(form2);

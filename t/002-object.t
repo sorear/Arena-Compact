@@ -1,7 +1,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 18;
+use Test::More tests => 24;
 use Scalar::Util 'refaddr';
 use Test::Exception;
 
@@ -36,5 +36,11 @@ lives_ok { undef $obj1; } "deleting out of order works";
 is(BIBOP::bget($obj2, *x), 34.0, "second x _still_ preserved");
 is(BIBOP::bget($obj2, *y), 45.0, "second y _still_ preserved");
 
-1;
+ok(BIBOP::bexists($obj2, *x), "second has x");
+ok(BIBOP::bexists($obj2, *y), "second has y");
+ok(not(BIBOP::bexists($obj2, *is)), "second has not is");
 
+lives_ok { BIBOP::bdelete($obj2, *x) } "deleting fields works";
+
+ok(not(BIBOP::bexists($obj2, *x)), "second no longer has x");
+ok(BIBOP::bexists($obj2, *y), "second still has y");

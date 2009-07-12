@@ -506,72 +506,59 @@ obj_delete(SV *obj, SV *field)
     format_putbody(format, body);
 }
 
-#if 0
-static HV *key_cache;
-static HV *stash_BIBOP_Key;
+MODULE = BIBOP  PACKAGE = BIBOP
 
-static SV *
-find_key(SV *name, SV *type, Boolean create, Boolean *created)
-{
-    HE *khe = hv_fetch_ent(key_cache, name, create, 0);
+BOOT:
+    format_cache = newHV();
+    format_stash = gv_stashpv("BIBOP::Format", GV_ADD);
+    null_format = format_find(NULL, 0);
+    objh_stash = gv_stashpv("BIBOP::Node", GV_ADD);
 
-    if (!khe) {
-        if (create)
-            croak("key memo corruption: failed to extend hash (tied?)");
-        return 0;
-    }
+PROTOTYPES: DISABLE
 
-    SV *ref = HeVAL(khe);
+SV *
+bnew()
+    PPCODE:
+        ENTER;
+        ST(0) = objh_new_empty();
+        SvREFCNT_inc(ST(0));
+        LEAVE;
+        sv_2mortal(ST(0));
+        XSRETURN(1);
 
-    if (SvROK(ref)) {
-        SV *key = SvRV(ref);
+SV *
+bget(objh, field)
+        SV *objh
+        SV *field
+    PPCODE:
+        dXSTARG;
+        ENTER;
+        obj_read(TARG, objh, field);
+        XPUSHs(TARG);
+        LEAVE;
+        XSRETURN(1);
 
-        if (SvREADONLY(key) && SvOBJECT(key) &&
-                SvSTASH(key) == stash_BIBOP_Key) {
-            return key;
-        }
-    }
+void
+bput(objh, field, in)
+        SV *objh
+        SV *field
+        SV *in
+    PPCODE:
+        ENTER;
+        obj_write(objh, field, in);
+        LEAVE;
+        XSRETURN(0);
 
-    if (SvOK(ref))
-        croak("key memo corruption: non-keyref in table");
+int
+bexists(objh, field)
+        SV *objh
+        SV *field
 
-
-    SV *ref = 
-                croak("key memo corruption: not a valid key");
-            }
-        } else if (!SvOK(ref)) {
-            if (!create) {
-                
-
-
-        return 0;
-
-
-
-    if (!SvOK(HeVAL(khe))) {
-        if (!create)
-            croak("key memo table corruption - value of undef");
-
-        s
-        *created = 1;
-        if (SvOK(HeVAL(khe)) || )
-            return HeVAL(khe);
-
-        *created = 1;
-
-    if (khe && !create)
-        return khe;
-
-    d
-
-/*
- * This doesn't actually have to correspond to the system page size.
- * Which is a good thing, because you can't find that out portably.
- */
-
-struct format_field
-{
-    size_t byte_offset;
-
-
-#endif
+void
+bdelete(objh, field)
+        SV *objh
+        SV *field
+    CODE:
+        ENTER;
+        obj_delete(objh, field);
+        LEAVE;

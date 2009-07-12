@@ -190,6 +190,7 @@ lookup_field(struct format_data *format, SV *field)
 {
     struct format_field *fp = &format->fields[0];
     int shift = 1 << format->order;
+    shift >>= 1;
 
     for (; shift; shift >>= 1)
         if (field >= fp[shift].key)
@@ -284,14 +285,16 @@ reformat(char *body1, struct format_data *form1,
     slots1 = 1 << form1->order;
     slots2 = 1 << form2->order;
 
-    for (p1 = 0, p2 = 0; p1 < slots1 && p2 < slots2; ) {
+    for (p1 = form1->chaff, p2 = form1->chaff; p1 < slots1 && p2 < slots2; ) {
         if (form1->fields[p1].key < form2->fields[p2].key)
             p1++;
         else if (form1->fields[p1].key > form2->fields[p2].key)
             p2++;
-        else
+        else {
             field_copy(body1, form1->fields[p1].offset,
                 body2, form2->fields[p2].offset);
+            p1++; p2++;
+        }
     }
 }
 

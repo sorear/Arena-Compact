@@ -138,7 +138,7 @@ struct format_data
 
     int order; /* log2 of field count */
     int bytes; /* bytes per object */
-    int count;
+    int count; /* of fields */
     int chaff; /* initial padding */
 
     SV *sv;
@@ -170,6 +170,8 @@ format_destroy(pTHX_ SV *formobj, MAGIC *mg)
     for (i = f->chaff; i < (1 << f->order); i++) {
         SvREFCNT_dec(f->fields[i].key);
     }
+
+    Safefree(f);
 
     return 0;
 }
@@ -254,7 +256,13 @@ format_putbody(struct format_data *format, char *body)
 }
 
 static void
-format_releaseall(struct format_data *form, char *body);
+format_releaseall(struct format_data *form, char *body)
+{
+    int i;
+    for (i = form->chaff; i <= form->chaff + form->count; i++) {
+        field_release(body, &form->fields[i]);
+    }
+}
 
 static struct format_data *
 format_ofbody(char *body)
@@ -263,7 +271,41 @@ format_ofbody(char *body)
 }
 
 static struct format_data *
-format_build(SV **fields, int nfields);
+format_build(SV **fields, int nfields)
+{
+    int slots, order, i, chaff;
+    struct format_data *form;
+
+    for (order = 0, slots = 1; slots < nfields; slots <<= 1, order++);
+
+    Newxc(form, sizeof(struct format_data) + (slots - 1) *
+        sizeof(struct format_field), char, struct format_data);
+
+    chaff = form->chaff = slots - nfields;
+
+    for (i = 0; i < chaff; i++)
+        form->fields[i].key = 0;
+
+    form->bytes = 0;
+    /* for now, just use consequtive addresses with no padding */
+    for (i = 0; i < nfields; i++) {
+        form->fields[i + chaff].key = fields[i];
+        form->fields[i + chaff].offset = form->bytes;
+        form->bytes += sizeof(SV*);
+    }
+
+    /* leave room for a freelist pointer */
+    if (form->bytes < sizeof(struct free_header))
+        form->bytes = sizeof(struct free_header);
+
+    form->order = order;
+    form->count = nfields;
+
+    form->free_list = 0;
+    form->first_page = 0;
+
+    return form;
+}
 
 static struct format_data *
 format_find(SV **fields, int nfields)

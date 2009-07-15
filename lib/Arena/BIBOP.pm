@@ -1,5 +1,5 @@
 #!/usr/bin/env perl
-package BIBOP;
+package Arena::BIBOP;
 use strict;
 use warnings;
 

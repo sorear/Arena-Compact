@@ -544,13 +544,13 @@ obj_delete(SV *obj, SV *field)
     format_putbody(format, body);
 }
 
-MODULE = BIBOP  PACKAGE = BIBOP
+MODULE = Arena::BIBOP  PACKAGE = Arena::BIBOP
 
 BOOT:
     format_cache = newHV();
-    format_stash = gv_stashpv("BIBOP::Format", GV_ADD);
+    format_stash = gv_stashpv("Arena::BIBOP::Format", GV_ADD);
     null_format = format_find(NULL, 0);
-    objh_stash = gv_stashpv("BIBOP::Node", GV_ADD);
+    objh_stash = gv_stashpv("Arena::BIBOP::Node", GV_ADD);
 
 PROTOTYPES: DISABLE
 

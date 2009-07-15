@@ -3,12 +3,12 @@ use warnings;
 
 use Test::More tests => 3;
 
-use BIBOP;
+use Arena::BIBOP;
 
-my $node = BIBOP::bnew();
+my $node = Arena::BIBOP::bnew();
 
 ok(ref $node, "bnew returned something");
-isa_ok($node, 'BIBOP::Node', "node is initially a BIBOP::Node");
+isa_ok($node, 'Arena::BIBOP::Node', "node is initially a BIBOP::Node");
 
 undef $node;
 

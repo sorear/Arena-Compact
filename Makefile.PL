@@ -1,7 +1,7 @@
 use inc::Module::Install;
 
-name     'BIBOP';
-all_from 'lib/BIBOP.pm';
+name     'Arena-BIBOP';
+all_from 'lib/Arena/BIBOP.pm';
 
 ppport;
 

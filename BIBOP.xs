@@ -569,6 +569,7 @@ BOOT:
     format_cache = newHV();
     format_stash = gv_stashpv("Arena::BIBOP::Format", GV_ADD);
     null_format = format_find(NULL, 0);
+    SvREFCNT_inc(null_format->sv);
     objh_stash = gv_stashpv("Arena::BIBOP::Node", GV_ADD);
 
 PROTOTYPES: DISABLE

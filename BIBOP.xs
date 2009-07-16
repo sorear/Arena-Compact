@@ -42,7 +42,7 @@ DECLASTRUCT_(U32)
 
 #define PAD(ofs, ty) ((ofs + ALIGNOF_(ty) - 1) & ~ALIGNOF_(ty))
 
-#define DEBUG(x) x
+#define DEBUG(x)
 
 /**** generic perly stuff ****/
 static MAGIC *
@@ -191,7 +191,7 @@ format_destroy(pTHX_ SV *formobj, MAGIC *mg)
         key[i - f->chaff] = f->fields[i].key;
     }
 
-    hv_delete(format_cache, (char*)key, klen*sizeof(SV), G_DISCARD);
+    hv_delete(format_cache, (char*)key, klen*sizeof(SV*), G_DISCARD);
 
     Safefree(f);
 

@@ -13,6 +13,11 @@ BEGIN {
 
     __PACKAGE__->bootstrap();
 
+    *Arena::BIBOP::Node::put = *put;
+    *Arena::BIBOP::Node::exists = *exists;
+    *Arena::BIBOP::Node::delete = *delete;
+    *Arena::BIBOP::Node::get = *get;
+
     undef @ISA; # namespace pollution FTL
 }
 

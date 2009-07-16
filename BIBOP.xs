@@ -644,7 +644,7 @@ BOOT:
 PROTOTYPES: DISABLE
 
 SV *
-knamed(SV *name)
+key(SV *name)
     PPCODE:
         ENTER;
         ST(0) = newRV(key_find(name)->sv);
@@ -653,7 +653,7 @@ knamed(SV *name)
         XSRETURN(1);
 
 SV *
-bnew()
+new()
     PPCODE:
         ENTER;
         ST(0) = objh_new_empty();
@@ -663,7 +663,7 @@ bnew()
         XSRETURN(1);
 
 SV *
-bget(objh, field)
+get(objh, field)
         SV *objh
         SV *field
     PPCODE:
@@ -675,7 +675,7 @@ bget(objh, field)
         XSRETURN(1);
 
 void
-bput(objh, field, in)
+put(objh, field, in)
         SV *objh
         SV *field
         SV *in
@@ -686,7 +686,7 @@ bput(objh, field, in)
         XSRETURN(0);
 
 int
-bexists(objh, field)
+exists(objh, field)
         SV *objh
         SV *field
     CODE:
@@ -695,7 +695,7 @@ bexists(objh, field)
         RETVAL
 
 void
-bdelete(objh, field)
+delete(objh, field)
         SV *objh
         SV *field
     CODE:

@@ -5,7 +5,7 @@ use Test::More tests => 3;
 
 use Arena::BIBOP;
 
-my $node = Arena::BIBOP::bnew();
+my $node = Arena::BIBOP::new();
 
 ok(ref $node, "bnew returned something");
 isa_ok($node, 'Arena::BIBOP::Node', "node is initially a BIBOP::Node");

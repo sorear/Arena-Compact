@@ -27,17 +27,17 @@ __END__
 
 =head1 NAME
 
-BIBOP - A space-efficient storage manager for Perl 5
+Arena::BIBOP - A space-efficient storage manager for Perl 5
 
 =head1 SYNOPSIS
 
-    use BIBOP;
+    use Arena::BIBOP;
 
-    my $node = BIBOP::new();
-    BIBOP::put($node, 'x', 'scalar' => 2);
-    BIBOP::put($node, 'y', 'scalar' => 3);
+    my $node = Arena::BIBOP::new();
+    Arena::BIBOP::put($node, 'x', 'scalar' => 2);
+    Arena::BIBOP::put($node, 'y', 'scalar' => 3);
 
-    return BIBOP::get($node, 'x', 'scalar');
+    return Arena::BIBOP::get($node, 'x', 'scalar');
 
 =head1 DESCRIPTION
 
@@ -49,49 +49,39 @@ who want to save memory and time when working with large graph structures, at
 the cost of some simplicity.  Unlike L<Storable>, it allows packed data to be
 transparently converted into normal Perl data for operations.
 
-The BIBOP heap is comprised of nodes.  At a high level, nodes resemble hashes;
-they have identity (though they may not have stable names!), and they store a
-set of fields, which can be accessed independantly.
+The Arena::BIBOP heap is comprised of nodes.  At a high level, nodes resemble
+hashes; they have identity (though they may not have stable names!), and they
+store a set of fields, which can be accessed independantly.
 
 Nodes are represented in Perl-space as scalars, a reference to which is passed
-to the BIBOP API functions.  The scalars are blessed into BIBOP::Node as a
-convenience, but BIBOP does not rely on this; class builders are expected to
-use reblessed nodes as objects, and not inherit from BIBOP::Node.
+to the Arena::BIBOP API functions.  The scalars are blessed into
+Arena::BIBOP::Node as a convenience, but Arena::BIBOP does not rely on this;
+class builders are expected to use reblessed nodes as objects, and not inherit
+from Arena::BIBOP::Node.
 
-=head1 PROCEDURAL INTERFACE
+=head1 INTERFACE
 
 This is very low level, and has the advantage of not polluting namespaces.  It
 is intended mostly for use in implementing object builders, such as
 L<NooseX::BIBOP>.  No functions are exported.
 
-=head2 BIBOP::new()
+=head2 Arena::BIBOP::new()
 
 Creates a new, empty node.
 
-=head2 BIBOP::get($node, $name, $type)
+=head2 Arena::BIBOP::key('name'[, 'type'])
 
-Fetches the value of a named field.  The type shall be as specified below,
-and must match the set type exactly; no coercions are performed.
+Return a key identifier for the given name and type.  If the type is not
+specified, defaults to scalar.  (Types are not yet implemented and must be
+omitted.)
 
-=head2 BIBOP::put($node, $name, $type, $value)
+=head2 BIBOP::get($node, $key)
 
-Sets the value of a named field.  The value must be convertable to the given
-type.
+Fetches the value of a named field.
 
-=head1 SUPPORTED TYPES
+=head2 BIBOP::put($node, $key, $value)
 
-Types in BIBOP are used primarily to control data representation, and as such
-the object types are very coarse-grained.  They are B<not> intended to supplant
-Moose type constraints.
-
-=over 6
-
-=item C<'scalar'>
-
-A full Perl scalar field; it can contain any type of data, and can be made
-magical using tie et al.  Carries a substantial memory cost.
-
-=back
+Sets the value of a named field.
 
 =head1 AUTHOR
 
@@ -102,8 +92,8 @@ Stefan O'Rear, C<< <stefanor@cox.net> >>
 No known bugs.
 
 Please report any bugs through RT: email
-C<bug-bibop at rt.cpan.org>, or browse
-L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=BIBOP>.
+C<bug-arena-bibop at rt.cpan.org>, or browse
+L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Arena-BIBOP>.
 
 =head1 COPYRIGHT AND LICENSE
 

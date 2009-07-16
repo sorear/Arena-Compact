@@ -80,10 +80,72 @@ makemagicref(MGVTBL *v, HV *stash, SV *obp, char *chp, U32 size)
 
     return sref;
 }
-/* no keys needed yet - without types they can just be scalars */
+
+struct key {
+    SV *sv;
+    SV *namesv;
+};
+
+static HV *key_cache;
+static HV *key_stash;
+
+static int
+key_destroy(pTHX_ SV *keyobj, MAGIC *mg)
+{
+    struct key *k = (struct key *)mg->mg_ptr;
+    DEBUG(warn("DESTROYing key at %x\n", (int)k));
+
+    /* we are grateful hv_delete_ent is bytes-invariant ... */
+    hv_delete_ent(key_cache, k->namesv, G_DISCARD, 0);
+
+    SvREFCNT_dec(k->namesv);
+
+    Safefree(k);
+
+    return 0;
+}
+
+static MGVTBL key_magic = { 0, 0, 0, 0, key_destroy };
+
+static struct key *
+key_dehandle(SV *h)
+{
+    return (struct key *)magicref_by_vtbl(h, &key_magic, "key")->mg_ptr;
+}
+
+static struct key *
+key_find(SV *name)
+{
+    HE *he = hv_fetch_ent(key_cache, name, 1, 0);
+    struct key *k;
+
+    if (!he)
+        croak("key cache access denied?!");
+
+    if (SvOK(HeVAL(he))) {
+        k = (struct key *)
+            magicref_by_vtbl(HeVAL(he), &key_magic, "key cache entry")->mg_ptr;
+
+        if (sv_cmp(name, k->namesv))
+            croak("key cache name mismatch");
+
+        return k;
+    }
+
+    Newx(k, 1, struct key);
+    sv_setsv(HeVAL(he), makemagicref(&key_magic, key_stash, 0, (char*)k, 0));
+
+    k->namesv = newSVsv(name);
+    k->sv = SvRV(HeVAL(he));
+
+    sv_rvweaken(HeVAL(he));
+    return k;
+}
+
+/**/
 
 struct format_field {
-    SV *key;
+    struct key *key;
     int offset;
 };
 
@@ -167,7 +229,7 @@ format_destroy(pTHX_ SV *formobj, MAGIC *mg)
     struct format_data *f = (struct format_data *)mg->mg_ptr;
     DEBUG(warn("DESTROYing format at %x\n", (int)f));
 
-    SV **key;
+    struct key **key;
     int klen;
     HE *he;
 
@@ -184,14 +246,14 @@ format_destroy(pTHX_ SV *formobj, MAGIC *mg)
     }
 
     klen = ((1 << f->order) - f->chaff);
-    Newx(key, klen, SV *);
+    Newx(key, klen, struct key *);
 
     for (i = f->chaff; i < (1 << f->order); i++) {
-        SvREFCNT_dec(f->fields[i].key);
+        SvREFCNT_dec(f->fields[i].key->sv);
         key[i - f->chaff] = f->fields[i].key;
     }
 
-    hv_delete(format_cache, (char*)key, klen*sizeof(SV*), G_DISCARD);
+    hv_delete(format_cache, (char*)key, klen*sizeof(struct key*), G_DISCARD);
 
     Safefree(f);
 
@@ -201,7 +263,7 @@ format_destroy(pTHX_ SV *formobj, MAGIC *mg)
 static MGVTBL format_magic = { 0, 0, 0, 0, format_destroy };
 
 static struct format_field *
-lookup_field(struct format_data *format, SV *field)
+lookup_field(struct format_data *format, struct key *field)
 {
     struct format_field *fp = &format->fields[0];
     int shift = 1 << format->order;
@@ -324,7 +386,7 @@ format_ofbody(char *body)
 }
 
 static struct format_data *
-format_build(SV **fields, int nfields)
+format_build(struct key **fields, int nfields)
 {
     int slots, order, i, chaff;
     struct format_data *frm;
@@ -345,6 +407,7 @@ format_build(SV **fields, int nfields)
     for (i = 0; i < nfields; i++) {
         frm->fields[i + chaff].key = fields[i];
         frm->fields[i + chaff].offset = frm->bytes;
+        SvREFCNT_inc(fields[i]->sv);
         frm->bytes += sizeof(SV*);
     }
 
@@ -362,7 +425,7 @@ format_build(SV **fields, int nfields)
 }
 
 static struct format_data *
-format_find(SV **fields, int nfields)
+format_find(struct key **fields, int nfields)
 {
     SV** he = hv_fetch(format_cache, (char*)fields, nfields*sizeof(SV*), 0);
     SV *fref;
@@ -393,7 +456,7 @@ bad:
     fref = makemagicref(&format_magic, format_stash, 0, (char*)frm, 0);
     frm->sv = SvRV(fref);
 
-    if (!hv_store(format_cache, (char*)fields, nfields*sizeof(SV*), fref, 0))
+    if (!hv_store(format_cache, (char*)fields, nfields*sizeof(struct key*), fref, 0))
         croak("store into format cache denied?!?");
     SvREFCNT_inc(fref);
     sv_rvweaken(fref);
@@ -402,12 +465,12 @@ bad:
 }
 
 static struct format_data *
-format_add(struct format_data *base, SV *field)
+format_add(struct format_data *base, struct key *field)
 {
-    SV** nfields;
+    struct key** nfields;
     int i;
 
-    Newx(nfields, base->count + 1, SV *);
+    Newx(nfields, base->count + 1, struct key *);
     SAVEFREEPV(nfields);
 
     for (i = 0; i < base->count &&
@@ -425,11 +488,11 @@ format_add(struct format_data *base, SV *field)
 }
 
 static struct format_data *
-format_del(struct format_data *base, SV *field)
+format_del(struct format_data *base, struct key *field)
 {
-    SV **nfields;
+    struct key **nfields;
     int i, j;
-    Newx(nfields, base->count - 1, SV *);
+    Newx(nfields, base->count - 1, struct key *);
     SAVEFREEPV(nfields);
 
     for (i = 0, j = 0; i < base->count; i++) {
@@ -481,11 +544,12 @@ objh_new_empty()
 }
 
 static void
-obj_read(SV *out, SV *objh, SV *field)
+obj_read(SV *out, SV *objh, SV *fieldh)
 {
     struct format_data *format;
     struct format_field *ff;
     char *body;
+    struct key *field = key_dehandle(fieldh);
 
     obj_dehandle(objh, &format, &body);
 
@@ -502,13 +566,14 @@ obj_read(SV *out, SV *objh, SV *field)
 }
 
 static void
-obj_write(SV *obj, SV *field, SV *in)
+obj_write(SV *obj, SV *fieldh, SV *in)
 {
     struct format_data *format;
     struct format_field *ff;
     char *body;
     struct format_data *form2;
     char *body2;
+    struct key *field = key_dehandle(fieldh);
 
     obj_dehandle(obj, &format, &body);
     ff = lookup_field(format, field);
@@ -531,22 +596,24 @@ obj_write(SV *obj, SV *field, SV *in)
 }
 
 static int
-obj_exists(SV *objh, SV *field)
+obj_exists(SV *objh, SV *fieldh)
 {
     struct format_data *format;
     char *body;
+    struct key *field = key_dehandle(fieldh);
 
     obj_dehandle(objh, &format, &body);
     return lookup_field(format, field) ? 1 : 0;
 }
 
 static void
-obj_delete(SV *obj, SV *field)
+obj_delete(SV *obj, SV *fieldh)
 {
     struct format_data *format;
     char *body;
     struct format_data *form2;
     char *body2;
+    struct key *field = key_dehandle(fieldh);
 
     obj_dehandle(obj, &format, &body);
 
@@ -568,11 +635,22 @@ MODULE = Arena::BIBOP  PACKAGE = Arena::BIBOP
 BOOT:
     format_cache = newHV();
     format_stash = gv_stashpv("Arena::BIBOP::Format", GV_ADD);
+    key_cache = newHV();
+    key_stash = gv_stashpv("Arena::BIBOP::Key", GV_ADD);
     null_format = format_find(NULL, 0);
     SvREFCNT_inc(null_format->sv);
     objh_stash = gv_stashpv("Arena::BIBOP::Node", GV_ADD);
 
 PROTOTYPES: DISABLE
+
+SV *
+knamed(SV *name)
+    PPCODE:
+        ENTER;
+        ST(0) = newRV(key_find(name)->sv);
+        LEAVE;
+        sv_2mortal(ST(0));
+        XSRETURN(1);
 
 SV *
 bnew()

@@ -1,7 +1,6 @@
 #include "EXTERN.h"
 #include "perl.h"
 #include "XSUB.h"
-#define NEED_newRV_noinc
 #include "ppport.h"
 
 /*
@@ -43,6 +42,8 @@ DECLASTRUCT_(U32)
 
 #define PAD(ofs, ty) ((ofs + ALIGNOF_(ty) - 1) & ~ALIGNOF_(ty))
 
+#define DEBUG(x) x
+
 /**** generic perly stuff ****/
 static MAGIC *
 magicref_by_vtbl(SV *objh, MGVTBL *v, const char *name)
@@ -68,8 +69,9 @@ static SV *
 makemagicref(MGVTBL *v, HV *stash, SV *obp, char *chp, U32 size)
 {
     SV *self = newSV(0);
-    SV *sref = newRV_noinc(self);
+    SV *sref = newRV(self);
     SAVEFREESV(sref);
+    SAVEFREESV(self);
 
     sv_magic(self, obp, PERL_MAGIC_ext, chp, size);
     SvMAGIC(self)->mg_virtual = v;
@@ -163,6 +165,11 @@ static int
 format_destroy(pTHX_ SV *formobj, MAGIC *mg)
 {
     struct format_data *f = (struct format_data *)mg->mg_ptr;
+    DEBUG(warn("DESTROYing format at %x\n", (int)f));
+
+    SV **key;
+    int klen;
+    HE *he;
 
     /* since each object holds a reference to the format, all of our
        pages must be empty */
@@ -176,9 +183,15 @@ format_destroy(pTHX_ SV *formobj, MAGIC *mg)
         p = p2;
     }
 
+    klen = ((1 << f->order) - f->chaff);
+    Newx(key, klen, SV *);
+
     for (i = f->chaff; i < (1 << f->order); i++) {
         SvREFCNT_dec(f->fields[i].key);
+        key[i - f->chaff] = f->fields[i].key;
     }
+
+    hv_delete(format_cache, (char*)key, klen*sizeof(SV), G_DISCARD);
 
     Safefree(f);
 
@@ -217,6 +230,9 @@ format_getbody(struct format_data *format)
 
     if (body) {
         format->free_list = body->next;
+
+ret:
+        DEBUG(warn("allocing body at %x for %x\n", (int)body, (int)format));
         return (char*)body;
     }
 
@@ -255,7 +271,7 @@ format_getbody(struct format_data *format)
 
     body = format->free_list;
     format->free_list = body->next;
-    return (char*)body;
+    goto ret;
 }
 
 static void
@@ -263,6 +279,7 @@ format_putbody(struct format_data *format, char *body)
 {
     struct free_header *frh = (struct free_header *)body;
 
+    DEBUG(warn("freeing body at %x for %x\n", (int)body, (int)format));
     frh->next = format->free_list;
     format->free_list = frh;
 
@@ -317,6 +334,7 @@ format_build(SV **fields, int nfields)
     Newxc(frm, sizeof(struct format_data) + (slots - 1) *
         sizeof(struct format_field), char, struct format_data);
 
+    DEBUG(warn("creating format at %x\n", (int)frm));
     chaff = frm->chaff = slots - nfields;
 
     for (i = 0; i < chaff; i++)
@@ -378,6 +396,7 @@ bad:
     if (!hv_store(format_cache, (char*)fields, nfields*sizeof(SV*), fref, 0))
         croak("store into format cache denied?!?");
     SvREFCNT_inc(fref);
+    sv_rvweaken(fref);
 
     return frm;
 }

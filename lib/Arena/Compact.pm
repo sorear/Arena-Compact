@@ -1,5 +1,5 @@
 #!/usr/bin/env perl
-package Arena::BIBOP;
+package Arena::Compact;
 use strict;
 use warnings;
 
@@ -13,10 +13,10 @@ BEGIN {
 
     __PACKAGE__->bootstrap();
 
-    *Arena::BIBOP::Node::put = *put;
-    *Arena::BIBOP::Node::exists = *exists;
-    *Arena::BIBOP::Node::delete = *delete;
-    *Arena::BIBOP::Node::get = *get;
+    *Arena::Compact::Node::put = *put;
+    *Arena::Compact::Node::exists = *exists;
+    *Arena::Compact::Node::delete = *delete;
+    *Arena::Compact::Node::get = *get;
 
     undef @ISA; # namespace pollution FTL
 }
@@ -27,17 +27,17 @@ __END__
 
 =head1 NAME
 
-Arena::BIBOP - A space-efficient storage manager for Perl 5
+Arena::Compact - A space-efficient storage manager for Perl 5
 
 =head1 SYNOPSIS
 
-    use Arena::BIBOP;
+    use Arena::Compact;
 
-    my $node = Arena::BIBOP::new();
-    Arena::BIBOP::put($node, 'x', 'scalar' => 2);
-    Arena::BIBOP::put($node, 'y', 'scalar' => 3);
+    my $node = Arena::Compact::new();
+    Arena::Compact::put($node, 'x', 'scalar' => 2);
+    Arena::Compact::put($node, 'y', 'scalar' => 3);
 
-    return Arena::BIBOP::get($node, 'x', 'scalar');
+    return Arena::Compact::get($node, 'x', 'scalar');
 
 =head1 DESCRIPTION
 
@@ -49,37 +49,37 @@ who want to save memory and time when working with large graph structures, at
 the cost of some simplicity.  Unlike L<Storable>, it allows packed data to be
 transparently converted into normal Perl data for operations.
 
-The Arena::BIBOP heap is comprised of nodes.  At a high level, nodes resemble
+The Arena::Compact heap is comprised of nodes.  At a high level, nodes resemble
 hashes; they have identity (though they may not have stable names!), and they
 store a set of fields, which can be accessed independantly.
 
 Nodes are represented in Perl-space as scalars, a reference to which is passed
-to the Arena::BIBOP API functions.  The scalars are blessed into
-Arena::BIBOP::Node as a convenience, but Arena::BIBOP does not rely on this;
+to the Arena::Compact API functions.  The scalars are blessed into
+Arena::Compact::Node as a convenience, but Arena::Compact does not rely on this;
 class builders are expected to use reblessed nodes as objects, and not inherit
-from Arena::BIBOP::Node.
+from Arena::Compact::Node.
 
 =head1 INTERFACE
 
 This is very low level, and has the advantage of not polluting namespaces.  It
 is intended mostly for use in implementing object builders, such as
-L<NooseX::BIBOP>.  No functions are exported.
+L<NooseX::Compact>.  No functions are exported.
 
-=head2 Arena::BIBOP::new()
+=head2 Arena::Compact::new()
 
 Creates a new, empty node.
 
-=head2 Arena::BIBOP::key('name'[, 'type'])
+=head2 Arena::Compact::key('name'[, 'type'])
 
 Return a key identifier for the given name and type.  If the type is not
 specified, defaults to scalar.  (Types are not yet implemented and must be
 omitted.)
 
-=head2 BIBOP::get($node, $key)
+=head2 Compact::get($node, $key)
 
 Fetches the value of a named field.
 
-=head2 BIBOP::put($node, $key, $value)
+=head2 Compact::put($node, $key, $value)
 
 Sets the value of a named field.
 
@@ -92,8 +92,8 @@ Stefan O'Rear, C<< <stefanor@cox.net> >>
 No known bugs.
 
 Please report any bugs through RT: email
-C<bug-arena-bibop at rt.cpan.org>, or browse
-L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Arena-BIBOP>.
+C<bug-arena-compact at rt.cpan.org>, or browse
+L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Arena-Compact>.
 
 =head1 COPYRIGHT AND LICENSE
 

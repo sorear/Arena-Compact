@@ -18,7 +18,7 @@
  * Pages must have at least as much alignment as any other used type, and
  * it must be possible to page-align an arbitrary pointer.
  */
-#define BIBOP_PAGE_SIZE 4096
+#define MY_PAGE_SIZE 4096
 #define PAGE_LOG2 12
 #define PAGE2START(p) INT2PTR(char *, (PTR2UV(p) & ~4095))
 #define PAGESKIP(p) ((0 - PTR2UV(p)) & 4095)
@@ -189,7 +189,7 @@ field_copy(char *body1, int offset1, char *body2, int offset2)
 
 /**/
 
-#define BIBOP_ALLOC_GRAN 255
+#define MY_ALLOC_GRAN 255
 
 struct format_data;
 
@@ -300,7 +300,7 @@ ret:
 
     if (!free_pages) {
         char *block;
-        int bytes = (BIBOP_ALLOC_GRAN + 1) * BIBOP_PAGE_SIZE - MEM_ALIGNBYTES;
+        int bytes = (MY_ALLOC_GRAN + 1) * MY_PAGE_SIZE - MEM_ALIGNBYTES;
         int skip;
         Newx(block, bytes, char);
 
@@ -308,7 +308,7 @@ ret:
         block += skip;
         bytes -= skip;
 
-        for (i = 0; i < bytes; i += BIBOP_PAGE_SIZE) {
+        for (i = 0; i < bytes; i += MY_PAGE_SIZE) {
             ((struct page_header *) &block[i])->link = free_pages;
             free_pages = (struct page_header *)&block[i];
         }
@@ -321,7 +321,7 @@ ret:
     page->format = format;
     format->first_page = page;
 
-    end_page = wraddr + ((BIBOP_PAGE_SIZE - sizeof(struct page_header)) /
+    end_page = wraddr + ((MY_PAGE_SIZE - sizeof(struct page_header)) /
         format->bytes) * format->bytes;
 
     for (; wraddr < end_page; wraddr += format->bytes) {
@@ -630,16 +630,16 @@ obj_delete(SV *obj, SV *fieldh)
     format_putbody(format, body);
 }
 
-MODULE = Arena::BIBOP  PACKAGE = Arena::BIBOP
+MODULE = Arena::Compact  PACKAGE = Arena::Compact
 
 BOOT:
     format_cache = newHV();
-    format_stash = gv_stashpv("Arena::BIBOP::Format", GV_ADD);
+    format_stash = gv_stashpv("Arena::Compact::Format", GV_ADD);
     key_cache = newHV();
-    key_stash = gv_stashpv("Arena::BIBOP::Key", GV_ADD);
+    key_stash = gv_stashpv("Arena::Compact::Key", GV_ADD);
     null_format = format_find(NULL, 0);
     SvREFCNT_inc(null_format->sv);
-    objh_stash = gv_stashpv("Arena::BIBOP::Node", GV_ADD);
+    objh_stash = gv_stashpv("Arena::Compact::Node", GV_ADD);
 
 PROTOTYPES: DISABLE
 

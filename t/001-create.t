@@ -3,12 +3,12 @@ use warnings;
 
 use Test::More tests => 3;
 
-use Arena::Compact;
+use Arena::Compact -all => { -prefix => 'b' };
 
-my $node = Arena::Compact::new();
+my $node = bnew();
 
 ok(ref $node, "bnew returned something");
-isa_ok($node, 'Arena::Compact::Node', "node is initially a Compact::Node");
+isa_ok($node, 'Arena::Compact::Node', "node is initially a Node");
 
 undef $node;
 

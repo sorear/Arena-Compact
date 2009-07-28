@@ -3,6 +3,9 @@ package Arena::Compact;
 use strict;
 use warnings;
 
+use Sub::Exporter -setup =>
+    { exports =>[ qw/put exists delete get new key/ ] };
+
 BEGIN {
 
     require DynaLoader;
@@ -12,11 +15,6 @@ BEGIN {
     our @ISA = ('DynaLoader');
 
     __PACKAGE__->bootstrap();
-
-    *Arena::Compact::Node::put = *put;
-    *Arena::Compact::Node::exists = *exists;
-    *Arena::Compact::Node::delete = *delete;
-    *Arena::Compact::Node::get = *get;
 
     undef @ISA; # namespace pollution FTL
 }
@@ -31,13 +29,15 @@ Arena::Compact - A space-efficient storage manager for Perl 5
 
 =head1 SYNOPSIS
 
-    use Arena::Compact;
+    use Arena::Compact -all => { prefix => 'b' };
 
-    my $node = Arena::Compact::new();
-    Arena::Compact::put($node, 'x', 'scalar' => 2);
-    Arena::Compact::put($node, 'y', 'scalar' => 3);
+    my $node = bnew();
+    my $X = bkey('x');
+    my $Y = bkey('y');
+    bput($node, $X => 2);
+    bput($node, $X => 3);
 
-    return Arena::Compact::get($node, 'x', 'scalar');
+    return bget($node, $X);
 
 =head1 DESCRIPTION
 

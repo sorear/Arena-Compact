@@ -53,6 +53,12 @@ user screws up, and there's no obvious way to prevent a crash from
 ensuing, so we have to use magic.  Conveniently, the magic structure
 has enough free space to hold the pointer and the hash chain.
 
+Sharding
+--------
+
+Suppose we're confronted with an object too large to efficiently fit into
+a page.
+
 Future
 ------
 

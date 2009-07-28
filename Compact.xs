@@ -1,8 +1,31 @@
+/* vim: set fdm=marker: */
+/* summary and imports {{{ */
 #include "EXTERN.h"
 #include "perl.h"
 #include "XSUB.h"
 #include "ppport.h"
 
+/*
+ * This module, as discussed in the POD, implements a generic space-efficient
+ * storage manager.  To minimize my insanity, there are a few layers here.
+ *
+ * - Type handling code, will read and write SVs from a block of memory.
+ *
+ * - Key handling, converts string/type pairs into unique IDs.  Parses types.
+ *
+ * - Object layer, allocates memory in N byte chunks, can return type field
+ *   or address of any byte given object catalog number (OCN).
+ *
+ * - Format layer.  From a set of keys, lays out an object in memory; allows
+ *   them to be allocated, deallocated, and modified.
+ *
+ * - Handle layer.  Bundles an object pointer up into a SV for Perl, and
+ *   provides operations upon them.  Also knows what references it has, and
+ *   implements ref types for #1.
+ */
+
+/* }}} */
+/* pointer munging and Perl support {{{ */
 /*
  * This module requires two things that aren't quite ANSI-implementable,
  * but can be done on all normal computers with a bit of undefined
@@ -80,7 +103,8 @@ makemagicref(MGVTBL *v, HV *stash, SV *obp, char *chp, U32 size)
 
     return sref;
 }
-
+/* }}} */
+/* key layer {{{ */
 struct key {
     SV *sv;
     SV *namesv;
@@ -142,7 +166,8 @@ key_find(SV *name)
     return k;
 }
 
-/**/
+/* }}} */
+/* type handling {{{ */
 
 struct format_field {
     struct key *key;
@@ -187,7 +212,8 @@ field_copy(char *body1, int offset1, char *body2, int offset2)
     *(SV**)(body2+offset2) = *(SV**)(body1+offset1);
 }
 
-/**/
+/* }}} */
+/* format and object, need to split {{{ */
 
 #define MY_ALLOC_GRAN 255
 
@@ -503,7 +529,8 @@ format_del(struct format_data *base, struct key *field)
     return format_find(nfields, base->count-1);
 }
 
-/**/
+/* }}} */
+/* handle layer {{{ */
 
 static HV *objh_stash;
 
@@ -629,7 +656,8 @@ obj_delete(SV *obj, SV *fieldh)
     obj_relocate(obj, body2);
     format_putbody(format, body);
 }
-
+/* }}} */
+/* XS stubs {{{ */
 MODULE = Arena::Compact  PACKAGE = Arena::Compact
 
 BOOT:
@@ -702,3 +730,4 @@ delete(objh, field)
         ENTER;
         obj_delete(objh, field);
         LEAVE;
+/* }}} */

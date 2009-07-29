@@ -306,23 +306,13 @@ lookup_field(struct format_data *format, struct key *field)
 }
 
 static char *
-format_getbody(struct format_data *format)
+mem_get_page(struct format_data *tag)
 {
-    struct free_header *body = format->free_list;
     struct page_header *page;
     UV wraddr;
     int i;
     UV end_page;
 
-    SvREFCNT_inc(format->sv);
-
-    if (body) {
-        format->free_list = body->next;
-
-ret:
-        DEBUG(warn("allocing body at %x for %x\n", (int)body, (int)format));
-        return (char*)body;
-    }
 
     if (!free_pages) {
         char *block;
@@ -341,25 +331,45 @@ ret:
     }
 
     page = free_pages;
-    wraddr = PTR2UV(page) + sizeof(struct page_header);
     free_pages = free_pages->link;
-    page->link = format->first_page;
-    page->format = format;
-    format->first_page = page;
 
-    end_page = wraddr + ((MY_PAGE_SIZE - sizeof(struct page_header)) /
-        format->bytes) * format->bytes;
+    page->link = tag->first_page;
+    page->format = tag;
 
-    for (; wraddr < end_page; wraddr += format->bytes) {
-        struct free_header *object = INT2PTR(struct free_header*, wraddr);
+    tag->first_page = page;
 
-        object->next = format->free_list;
-        format->free_list = object;
+    return page;
+}
+
+static char *
+format_getbody(struct format_data *format)
+{
+    struct free_header *body = format->free_list;
+
+    SvREFCNT_inc(format->sv);
+
+    if (!body) {
+        struct page_header *page = mem_get_page(format);
+
+        UV wraddr = PTR2UV(page) + sizeof(struct page_header);
+
+        UV end_page = wraddr + ((MY_PAGE_SIZE - sizeof(struct page_header)) /
+            format->bytes) * format->bytes;
+
+        for (; wraddr < end_page; wraddr += format->bytes) {
+            struct free_header *object = INT2PTR(struct free_header*, wraddr);
+
+            object->next = format->free_list;
+            format->free_list = object;
+        }
+
+        body = format->free_list;
     }
 
-    body = format->free_list;
     format->free_list = body->next;
-    goto ret;
+
+    DEBUG(warn("allocing body at %x for %x\n", (int)body, (int)format));
+    return (char*)body;
 }
 
 static void

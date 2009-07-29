@@ -3,6 +3,8 @@ package Arena::Compact;
 use strict;
 use warnings;
 
+use 5.006; # sv_rvweaken
+
 use Sub::Exporter -setup =>
     { exports =>[ qw/put exists delete get new key/ ] };
 

@@ -61,25 +61,28 @@ from Arena::Compact::Node.
 
 =head1 INTERFACE
 
-This is very low level, and has the advantage of not polluting namespaces.  It
-is intended mostly for use in implementing object builders, such as
-L<NooseX::Compact>.  No functions are exported.
+There are few convenience functions here; it is intended mostly for use in
+implementing object builders, such as L<NooseX::Compact>.  Arena::Compact uses
+L<Sub::Exporter>, so you can for instance say:
 
-=head2 Arena::Compact::new()
+    use Arena::Compact -all => { -prefix => 'b' };
 
-Creates a new, empty node.
+to get all the functions with a nice one-letter namespace code.
 
-=head2 Arena::Compact::key('name'[, 'type'])
+=head2 new()
+
+Creates a new, empty node, and returns a handle to it.
+
+=head2 key('name'[, 'type'])
 
 Return a key identifier for the given name and type.  If the type is not
-specified, defaults to scalar.  (Types are not yet implemented and must be
-omitted.)
+specified, defaults to scalar.  (Types are not yet implemented.)
 
-=head2 Compact::get($node, $key)
+=head2 get($node, $key)
 
 Fetches the value of a named field.
 
-=head2 Compact::put($node, $key, $value)
+=head2 put($node, $key, $value)
 
 Sets the value of a named field.
 
@@ -87,9 +90,14 @@ Sets the value of a named field.
 
 Stefan O'Rear, C<< <stefanor@cox.net> >>
 
+=head1 CURRENT LIMITATIONS
+
+None, insofar as everything speified by the API can be done, but the API is
+expected to see a lot of improvement; see the end of HACKING for an idea.
+
 =head1 BUGS
 
-No known bugs.
+Probably very buggy, yes.
 
 Please report any bugs through RT: email
 C<bug-arena-compact at rt.cpan.org>, or browse

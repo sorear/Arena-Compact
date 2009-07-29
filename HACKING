@@ -1,50 +1,64 @@
-Implementation notes for BIBOP
-------------------------------
+=head1 Implementation notes for Arena::Compact
 
-BIBOP uses the "BIg Bag Of Pages" algorithm mentioned in [1] to
-efficiently store Perl data.  Each page of memory allocated by
-BIBOP is marked with a template of an object; for instance all
-objects with double-precision fields x and y blessed into Point
-will share one template, and that template owns pages which are
-used only to store points.
+Arena::Compact uses variants of the "BIg Bag Of Pages" algorithm (from
+L<http://www.iecc.com/gclist/GC-algorithms.html#Jargon>) to efficiently store
+Perl data.  Each page of memory allocated is marked with a template of an
+object; for instance all objects with double-precision fields x and y blessed
+into Point will share one template, and that template owns pages which are used
+only to store points.
 
-The upshot of this is that almost no metadata needs to be kept,
-in byte terms.  If you have 100 million points in memory, 255
-of them will fit on each page, and you will only use 1.6 GB
-of memory; each page has 4 bytes to store its owning format
-(on a 32-bit system), 255*16 = 4080 bytes of data, and 12 bytes
+The upshot of this is that almost no metadata needs to be kept, in byte terms.
+If you have 100 million points in memory, 255 of them will fit on each page,
+and you will only use 1.6 GB of memory; each page has 4 bytes to store its
+owning format (on a 32-bit system), 255*16 = 4080 bytes of data, and 12 bytes
 of slack.
 
-By contrast if the Points were each stored as a blessed HASH
-reference, this would require, for each Point, three Perl
-values; two numbers, each occupying 24 bytes (16 bytes for the
-SV header, 8 for the actual number), and a hash, with a 32 byte
-hash table, a 16 byte header, 24 bytes of hash chain entries,
-and 20 bytes of metadata, for a grand total of 140 bytes per
-Point and 14 GB for the entire set.  Actually, since that's
-bigger than 2GB, you need to use a 64-bit perl, which has
-8 byte pointers, so 28 GB.
+By contrast if the Points were each stored as a blessed HASH reference, this
+would require, for each Point, three Perl values; two numbers, each occupying
+24 bytes (16 bytes for the SV header, 8 for the actual number), and a hash,
+with a 32 byte hash table, a 16 byte header, 24 bytes of hash chain entries,
+and 20 bytes of metadata, for a grand total of 140 bytes per Point and 14 GB
+for the entire set.  Actually, since that's bigger than 2GB, you need to use a
+64-bit perl, which has 8 byte pointers, so more like 20 GB.
 
-Representation of Nodes
------------------------
+=head1 Keys: Space and time efficient comparison of name,type pairs
 
-Nodes cannot be Perl objects; the overhead would kill us.  They
-are pointers directly into a data block, and have zero or more
-fields, as described by the format pointed to by word 0 of the
-data block.
+B<incomplete; since there is only one type only name is used>
 
-Representation of Formats
--------------------------
+Rather than requiring continuous parsing and comparison of names and types, we
+use key objects, which are stored in a global intern table key_cache.  Two keys
+with the same name and type will always have the same refaddr.  Key objects
+cache a parsed representation of the type, for code simplicity.
 
-To allow quick searching, the field names and types are pre-
-compressed using an external hash table; the format is then indexed
-by the addresses of field structures.  The format is intended to be
-binary-searched, not hashed.  Fields and formats are real Perl
-objects, to make reification easy; they should not be numerous in
-any event.
+=head1 Types
 
-Handles
--------
+In order to pack data effectively, Arena::Compact needs to understand it.
+Types tell it how to store and interpret data; they define functions to copy
+between a block of memory (with some size and some alignment requirement) and
+a SV.  There will eventually be a lot of types; right now there is only scalar
+(a SV* represented natively, holding one reference).
+
+=head1 Memory
+
+B<Not yet implemented; a much more restricted system exists directly in formats>
+
+We need to be able to allocate given-size chunks of memory, and identify their
+types.  We also need to be able to support large objects somewhat efficiently.
+Our current approach us to consider the memory allocated to each subarena as
+one contiguous block, such that when we reach the end of a page we use the
+page's next pointer to continue; for objects much larger than pages, we may
+have internal skip pointers in the objects, or something.
+
+=head1 Formats
+
+Because we condensed names and types into address-sized integers, the
+implementation of access to formatted objects is fairly simple; a binary
+search is used to locate the correct field for the access, then the type
+layer is used to do the actual access.
+
+=head1 Handles
+
+B<incomplete; currently all objects are treated as __persistent_handle>
 
 These are an interesting case, since there are just so many of them.
 Conversely, because users are expected to rebless them, cleaning them
@@ -53,34 +67,46 @@ user screws up, and there's no obvious way to prevent a crash from
 ensuing, so we have to use magic.  Conveniently, the magic structure
 has enough free space to hold the pointer and the hash chain.
 
-Sharding
---------
+=head1 Future
 
-Suppose we're confronted with an object too large to efficiently fit into
-a page.
+=over
 
-Future
-------
+=item Keys as real cached objects
 
-- Keys as real cached objects
-- Types other than scalar
-- Pragmatic fields
-- Ephemeral handles
-- Derived/parameterized types
-- Lists
-- User-defined types
-- MooseX
-- Garbage collector (to save on RC bits)
-- Reified formats for one-stop new
-- Immutability
-- XS API?
-- Blessing and reblessing
-- Sub-byte fields
-- Statistics
-- Compaction
-- mummap
-- Storage?
-- Hashes?
+=item Types other than scalar
 
+=item Pragmatic fields
 
-[1] http://www.iecc.com/gclist/GC-algorithms.html#Jargon
+=item Ephemeral handles
+
+=item Derived/parameterized types
+
+=item Lists
+
+=item User-defined types
+
+=item MooseX
+
+=item Garbage collector (to save on RC bits)
+
+=item Reified formats for one-stop new
+
+=item Immutability
+
+=item XS API?
+
+=item Blessing and reblessing
+
+=item Sub-byte fields
+
+=item Statistics
+
+=item Compaction
+
+=item mummap
+
+=item Storage?
+
+=item Hashes?
+
+=back

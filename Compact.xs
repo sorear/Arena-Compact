@@ -672,7 +672,7 @@ BOOT:
 PROTOTYPES: DISABLE
 
 SV *
-key(SV *name)
+key(SV *name, SV *type = 0)
     PPCODE:
         ENTER;
         ST(0) = newRV(key_find(name)->sv);

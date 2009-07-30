@@ -257,7 +257,6 @@ format_destroy(pTHX_ SV *formobj, MAGIC *mg)
 
     struct key **key;
     int klen;
-    HE *he;
 
     /* since each object holds a reference to the format, all of our
        pages must be empty */
@@ -309,9 +308,7 @@ static char *
 mem_get_page(struct format_data *tag)
 {
     struct page_header *page;
-    UV wraddr;
     int i;
-    UV end_page;
 
 
     if (!free_pages) {
@@ -338,7 +335,7 @@ mem_get_page(struct format_data *tag)
 
     tag->first_page = page;
 
-    return page;
+    return (char*)page;
 }
 
 static char *
@@ -349,7 +346,7 @@ format_getbody(struct format_data *format)
     SvREFCNT_inc(format->sv);
 
     if (!body) {
-        struct page_header *page = mem_get_page(format);
+        char *page = mem_get_page(format);
 
         UV wraddr = PTR2UV(page) + sizeof(struct page_header);
 

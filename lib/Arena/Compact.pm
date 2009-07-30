@@ -69,7 +69,9 @@ L<Sub::Exporter>, so you can for instance say:
 
     use Arena::Compact -all => { -prefix => 'b' };
 
-to get all the functions with a nice one-letter namespace code.
+to get all the functions with a nice one-letter namespace code.  Remember to
+use L<namespace::clean> or some equivalent to avoid polluting the method
+namespace!
 
 =head2 new()
 
@@ -88,14 +90,32 @@ Fetches the value of a named field.
 
 Sets the value of a named field.
 
-=head1 AUTHOR
+Objects larger than 4088 bytes cannot currently be constructed.
 
-Stefan O'Rear, C<< <stefanor@cox.net> >>
+=head1 RECKONING SIZE
+
+What follows is subject to change in detail but the spirit will remain the
+same.  Full, gory details are included in HACKING.
+
+Each object consumes one word plus the size of a scalar for each field.
+Objects are packed in 4096-byte pages; 2 words of overhead exist for each page.
+Objects with different sets of fields cannot share pages, so for each
+combination of set fields, an integral multiple of 4096 bytes must be allocated.
+There is also some fixed overhead for each format and key (a small data
+allocation and an entry in a global hashtable).
+
+=head1 THREADS
+
+Not yet supported.
 
 =head1 CURRENT LIMITATIONS
 
 None, insofar as everything speified by the API can be done, but the API is
 expected to see a lot of improvement; see the end of HACKING for an idea.
+
+=head1 AUTHOR
+
+Stefan O'Rear, C<< <stefanor@cox.net> >>
 
 =head1 BUGS
 

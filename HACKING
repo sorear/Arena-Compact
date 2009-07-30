@@ -109,4 +109,9 @@ has enough free space to hold the pointer and the hash chain.
 
 =item Hashes?
 
+=item Eliminate keys?
+
+nothingmuch says that modifying a class while objects exist is undefined
+behavior, so this isn't as infeasable as I thought.
+
 =back

@@ -1,0 +1,95 @@
+lifetime: how will we know when to kill this object?
+  - perl : Object lifetime is tied to a SV, stable refaddr and supports
+           magic, can always be retyped, ~60 byte overhead
+  - ref  : 32 bit refcount, SV comes and goes, 4 byte
+  - ref8 : like ref but 1 byte, croaks on adding 257th ref
+  - gc   : uses 1 bit per object, freed if unreferenced at compact time,
+           cannot detect cycles (one pass)
+
+stable_name: would prevent compaction or otherwise prevent oid_t change,
+  deferred indefinitely as weak ref hashes cover the common use cases
+
+no_free_list: allow objects to be smaller than a list pointer, do linear
+  scans instead for allocation - ignored if no savings.  Works on all
+  lifetimes
+
+expects_weak_refs: allocate 4 bytes for backref chain, instead of 8 on demand
+
+storage_method: the oid->memory mapping
+  - homogenous packs (oid=ptr)
+  - homogenous packs with slicing (oid=ptr)
+  - heterogenous packs with type words (and slicing?) (oid=ptr)
+  - indirect heterogenous packs (oid=ptr-to-(bodyptr,type); round sizes?)
+  - paged indirect - points to a pointer array, all fullpage except last,
+    first pointer is type, no sense doing homogenous optimization at this
+    scale...
+
+every object and subobject has a type; some types have subobjects
+  - int (give range; can be smaller than a byte)
+  - float (mantissa bits, characteristic bits)
+  - 8bit-charset-char
+  - unicode char
+  - string (keeps some data out of line; may be differentiated by exactly how -
+            atom, cord, etc)
+  - record (% with fixed keys)
+  - hash (keeps data out of line, paramaterized by key and value type, ref keys
+          may be weak and the entire entry will be deleted if gone)
+  - array (data out of line, parameterized by value type)
+  - vector (in line, fixed size)
+  - ref (short circuits handles)
+  - weak_ref
+  - perl_ref - SV *
+  - perl_weak_ref - SV *
+  - perl_scalar - owns a SV
+  - perl_array - owns AV
+  - perl_hash
+  - perl_glob
+  - perl_filehandle_ref - since you can't directly ref a filehandle
+  - void - no bytes; useful for turning hashes into sets, frex
+
+objects and subobjects are referenced in Perl by handles, which are any old
+scalar magically bound to the value (often, holding undef)
+
+an object type is a type with a set of pragmata, controlling allocation
+behavior, lifetime, and how to set up handles (if they are transient)
+
+every object has a type
+
+object types and types are C objects permanently bound to Perl reflections
+
+XS API
+
+_new_int_type(...)
+_new_record_type(...)
+_new_object_type(...)
+
+Perl API
+
+parse_type(STRING)  # handles memoization to ensure uniqueness of types
+
+phase pragma - has no effect, but tricks parse_type into generating separate
+type objects, which causes no shared pages and no cache contention
+
+new_object(TYPE or TYPESTR)  # for best results, preparse the type and store
+# it in a global, OP_gvsv is fast
+
+bind_new_object(REF, TYPE or TYPESTR)  # if reblessing
+
+given an object or subobject handle, you can:
+   - get the value (if it's non-aggregate)
+   - set (ditto)
+   - aggreggates can access like native trait methods, possibly using subhandle
+
+retyping - create a new object, populate it, then
+object_becomes(HANDLE, NEW_OBJ_HANDLE).  Needed for general reblessing, and
+for some cases of lazy fields
+
+easy retyping - given an object of fixed-aggreggate type, duplicate and retype
+such as to emulate a structural edit.
+
+struct type {
+    struct type_vtbl *vtbl;
+    int inline_size;
+    SV *perl_side;
+    /* per type info */
+};

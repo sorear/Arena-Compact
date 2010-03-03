@@ -1,17 +1,91 @@
 #ifndef ARENA_COMPACT_H
 #define ARENA_COMPACT_H
 
+extern MGVTBL ac_vtbl_objecthandle, ac_vtbl_class, ac_vtbl_type;
+
+void *ac_unhandle(MGVTBL *kind, SV *value);
+
+SV *ac_rehandle(MGVTBL *kind, void *inner);
+
 /*
- * Identifies a single object.  Need not actually be a pointer, but must be
- * the size of one.
+ * Identifies a single object.  Need not actually be a pointer; our current
+ * storage manager uses them, though.  I want to implement 32 bit index
+ * object IDs, though, for the sake of 64 bit platforms, eventually.
  */
 typedef void *ac_object;
 
-struct ac_type;
+/*
+ * A class consists of a type, some metadata controlling handles and allocation
+ * behavior, and allocation bookkeeping.  All user-level objects are associated
+ * with a specific class; many internal objects are associated with one of the
+ * special unnamed classes for each size.
+ *
+ * There are no plans to support heterogenous pages; the memory savings from
+ * this (~2k per class) are dwarfed by Moose metaclass overhead.
+ *
+ * I have an alternate design for the storage manager, where a master array
+ * stores a descriptor for every 16k object IDs; this array points to a class
+ * and an offset, the offset and the low bits of the object ID then index a
+ * data array.  Advantages include regular treatment of large objects and
+ * using 32 bit identifiers even on 64 bit systems; disadvantages include more
+ * complicated allocation (the class can move...) and an extra cache line
+ * fetch per object access.
+ */
+struct ac_type; /* forward */
+struct ac_class
+{
+    struct ac_type *dtype;
+    SV *reflection;
+    HV *bless_as;
+    int lifetime;
+
+    void *first_page;
+    void *last_page;
+    int total_objects;
+    int total_pages;
+    int obj_size_bytes;
+
+    int used_objects;
+    ac_object freelist_head;
+
+    /* TODO implement compacter
+    struct ac_class *nextcl;
+    struct ac_class *prevcl;
+
+    void **first_bitmap_page;
+    int num_bitmap_pages;
+    int bitmap_page_array_size;
+    */
+};
+
+#define AC_LIFE_PERL 0
+#define AC_LIFE_MANUAL 1
+#define AC_LIFE_GC 2
+#define AC_LIFE_REF 3
+#define AC_LIFE_REF8 4
+
+struct ac_class *ac_new_class(struct ac_type *ty, int nbytes, int lifetime,
+        HV *stash);
+
+ac_object ac_new_object(struct ac_class *cl);
+
+void ac_ref_object(ac_object o);
+void ac_unref_object(ac_object o);
+
+/* TODO compactor
+void ac_mark_object(ac_object o);
+
+ac_object ac_forward_object(ac_object o);
+*/
+
+void ac_object_copy_out(ac_object o, int bitoff, void *dst, int numbits);
+void ac_object_copy_in(ac_object o, int bitoff, void *src, int numbits);
 
 /*
- * Things you can do with a (sub)object of some type.  These functions are only
- * called if the corresponding bit in the type's flags word is set; this allows
+ * Things you can do with a (sub)object of some type.  These functions fall
+ * into two groups; some of them reflect user operations, and can be NULL to
+ * force an unsupported-operation croak.  Others are hooks and are only called
+ * if the corresponding bit in the type's flags word is set; this allows
  * aggregate types to pass through operations.
  */
 struct ac_type_ops
@@ -33,15 +107,18 @@ struct ac_type_ops
 
     /* TODO - subobject interrogation and editing, for mutable types */
 
-    /* Copy a value out of the (sub)object.  Croaks on non-scalar types. */
+    /* Copy a value out of the (sub)object. */
     void (*scalar_get)(struct ac_type *ty, ac_object obj, int bit_in_obj,
             SV *ret);
 
-    /* Copy in.  Croaks if not a scalar, or data validation error. */
+    /* Copy in.  Croaks if data validation error. */
     void (*scalar_put)(struct ac_type *ty, ac_object obj, int bit_in_obj,
             SV *from);
 
-    /* Bring an *uninitialized* block of memory to some zero/default state. */
+    /*
+     * Bring an *uninitialized* block of memory to some zero/default state;
+     * it will already have been zeroed.
+     */
     void (*initialize)(struct ac_type *ty, ac_object obj, int bit_in_obj);
 
     /* Drop references so an object can be deleted. */
@@ -76,3 +153,90 @@ struct ac_type_ops
     /* Convert to a string for diagnostics */
     void (*deparse)(struct ac_type *ty, SV *strbuf);
 };
+
+/*
+ * Type objects are constructed in a tree to represent all data stored;
+ * this is merely the base class.  Hash consing is done at the Perl level
+ * (for now; it will probably need to move to XS when retyping editors go in)
+ */
+struct ac_type
+{
+    struct ac_type_ops *ops;
+    unsigned int inline_size;
+    unsigned int flags;
+#define AC_INITIALIZE_USED 1
+#define AC_DESTROY_USED 2
+#define AC_TRANSLOCATE_USED 4
+#define AC_POSTCOMPACT_USED 8
+#define AC_MARK_USED 16
+#define AC_FORWARDIZE_USED 32
+    SV *reflection;
+};
+
+/*
+ * Constructs an integer type (with one reference).  TODO: support bit sizes
+ * over sizeof(IV)*CHAR_BIT; perhaps as a separate Math::BigInt type.
+ */
+struct ac_type *ac_make_int_type(int bits);
+
+/* A floating type of defined precision. */
+struct ac_type *ac_make_float_type(int expbits, int sigbits);
+
+/* Types of the same shape as the basic Perl types. */
+struct ac_type *ac_make_nv_type(void);
+struct ac_type *ac_make_iv_type(void);
+struct ac_type *ac_make_uv_type(void);
+
+/* An 8-bit character in some charset. */
+struct ac_type *ac_make_natl_char_type(SV *encode_instance);
+
+struct ac_type *ac_make_ucs2_char_type(void);
+struct ac_type *ac_make_ucs4_char_type(void);
+
+/* TODO decide on string variants - expected size and references! */
+struct ac_type *ac_make_string_type(void);
+
+struct ac_type *ac_make_record_type(int nfields, const char **names,
+        struct ac_type **types);
+
+/* TODO variants by size */
+struct ac_type *ac_make_hash_type(struct ac_type *kt, struct ac_type *vt);
+struct ac_type *ac_make_array_type(struct ac_type *et);
+
+/* Homogenous to save memory in large cases */
+struct ac_type *ac_make_vector_type(int ct, struct ac_type *et);
+
+/*
+ * Normally, holds an internal reference (object).  Can also hold SV*, this is
+ * important for transparency.  TODO: we need to distinguish these cases in
+ * some way; currently reverse handles are used, but it would be better if the
+ * storage manager could tell us "this is a SV"
+ */
+struct ac_type *ac_make_ref_type(void);
+
+struct ac_type *ac_make_weak_ref_type(void);
+
+/* Holds a reference to one SV */
+struct ac_type *ac_make_perl_scalar_type(void);
+
+struct ac_type *ac_make_perl_ref_type(void);
+struct ac_type *ac_make_perl_weakref_type(void);
+
+struct ac_type *ac_make_perl_array_type(void);
+struct ac_type *ac_make_perl_hash_type(void);
+struct ac_type *ac_make_perl_glob_type(void);
+struct ac_type *ac_make_perl_filehandle_ref_type(void);
+
+struct ac_type *ac_make_void_type(void);
+
+/* These functions automatically handle croaking */
+
+void ac_do_subobject(struct ac_type **typ, ac_object **op, int **offp,
+        SV *selector);
+
+void ac_do_set(struct ac_type *ty, ac_object o, int off, SV *val);
+void ac_do_get(struct ac_type *ty, ac_object o, int off, SV *ret);
+
+int ac_child_exists(struct ac_type *ty, ac_object o, int off, SV *sel);
+
+#endif

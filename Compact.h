@@ -1,11 +1,32 @@
 #ifndef ARENA_COMPACT_H
 #define ARENA_COMPACT_H
 
-extern MGVTBL ac_vtbl_objecthandle, ac_vtbl_class, ac_vtbl_type;
+struct ac_handle_sort
+{
+    MGVTBL magic_type;
 
-void *ac_unhandle(MGVTBL *kind, SV *value);
+    void (*setuphandle)(SV *handle, void *obj);
+    void (*deletehandle)(void *obj);
 
-SV *ac_rehandle(MGVTBL *kind, void *inner);
+    int needcanon;
+
+    SV **htab;
+    int shift;
+    int hused;
+};
+
+int ac_free_handle_magic(pTHX_ SV* sv, MAGIC* mg);
+
+#define AC_DEFINE_HANDLE_SORT(name, newfn, delfn, canon) \
+    struct ac_handle_sort ac_##name = { \
+        { 0, 0, 0, 0, ac_free_handle_magic, 0, 0, 0 }, \
+        newfn, delfn, canon, 0, 0, 0 }
+
+extern struct ac_handle_sort ac_hs_object, ac_hs_class, ac_hs_type;
+
+void *ac_unhandle(struct ac_handle_sort *kind, SV *value, const char *err);
+
+SV *ac_rehandle(struct ac_handle_sort *kind, void *inner);
 
 /*
  * Identifies a single object.  Need not actually be a pointer; our current

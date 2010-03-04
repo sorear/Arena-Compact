@@ -57,7 +57,8 @@ struct ac_class
 {
     struct ac_type *dtype;
     SV *reflection;
-    HV *bless_as;
+    SV *metaclass; /* unused, but will be kept alive as long as class exists */
+    HV *stash; /* to bless handles */
     int lifetime;
 
     void *first_page;
@@ -86,7 +87,7 @@ struct ac_class
 #define AC_LIFE_REF8 4
 
 struct ac_class *ac_new_class(struct ac_type *ty, int nbytes, int lifetime,
-        HV *stash);
+        SV *metaclass, HV *stash);
 
 ac_object ac_new_object(struct ac_class *cl);
 
@@ -99,8 +100,11 @@ void ac_mark_object(ac_object o);
 ac_object ac_forward_object(ac_object o);
 */
 
-void ac_object_copy_out(ac_object o, int bitoff, void *dst, int numbits);
-void ac_object_copy_in(ac_object o, int bitoff, void *src, int numbits);
+/* These should not be assumed to work above 32 */
+UV ac_object_fetch(ac_object o, int bitoff, int count);
+IV ac_object_fetch_signed(ac_object o, int bitoff, int count);
+/* does no error checking, deliberately */
+void ac_object_store(ac_object o, int bitoff, int count, UV val);
 
 /*
  * Things you can do with a (sub)object of some type.  These functions fall

@@ -97,5 +97,8 @@ SV *ac_rehandle(pTHX_ struct ac_handle_sort *kind, void *val)
         kind->htab[hash] = sv;
     }
 
+    if (kind->setuphandle)
+        kind->setuphandle(sv, val);
+
     return sv;
 }

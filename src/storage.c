@@ -26,9 +26,6 @@
  * fragmentation, we put pages into an ordered sequence, and allow objects to
  * span pages.  This means that object storage is OFTEN DISCONTIGUOUS.
  *
- * TODO: This module is not 64 bit clean, and will have problems with systems
- * that have -interesting- pointer formats.  Improve.
- *
  * TODO: This module isn't global destruction clean either.
  *
  * TODO: Abstract the allocation logic and make it threadsafe.
@@ -39,14 +36,14 @@ struct page_header
     struct ac_class *claz;
     struct page_header *nextp;
     struct page_header *prevp;
-    int serialno;
+    UV serialno;
 };
 
 struct page_header *free_page;
 
 static void ac_delete_class(void *clp);
 
-AC_DEFINE_HANDLE_SORT(class, NULL, ac_delete_class, 0);
+AC_DEFINE_HANDLE_SORT(class, 0, ac_delete_class, 0);
 
 struct ac_class *ac_new_class(struct ac_type *ty, int nbytes, int lifetime,
         SV *metaclass, HV *stash)
@@ -119,7 +116,6 @@ static void ac_free_handle(ac_object o) {
 
 ac_object ac_new_object(struct ac_class *cl) {
     ac_object o;
-    int rc = 0;
 
     if (!cl->freelist_head)
         ac_refill(cl);
@@ -161,6 +157,6 @@ void ac_ref_object(ac_object o) {
 void ac_unref_object(ac_object o) {
 }
 
-UV ac_object_fetch(ac_object o, int bitoff, int count);
-IV ac_object_fetch_signed(ac_object o, int bitoff, int count);
-void ac_object_store(ac_object o, int bitoff, int count, UV val);
+UV ac_object_fetch(ac_object o, UV bitoff, UV count);
+IV ac_object_fetch_signed(ac_object o, UV bitoff, UV count);
+void ac_object_store(ac_object o, UV bitoff, UV count, UV val);

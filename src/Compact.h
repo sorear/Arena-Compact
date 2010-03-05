@@ -12,7 +12,7 @@ struct ac_handle_sort
 
     SV **htab;
     int shift;
-    int hused;
+    UV hused;
 };
 
 int ac_free_handle_magic(pTHX_ SV* sv, MAGIC* mg);
@@ -63,11 +63,12 @@ struct ac_class
 
     void *first_page;
     void *last_page;
-    int total_objects;
-    int total_pages;
-    int obj_size_bytes;
+    UV total_objects;
+    UV total_pages;
+    UV obj_size_bytes;
+    UV obj_alloc_bits;
 
-    int used_objects;
+    UV used_objects;
     ac_object freelist_head;
 
     /* TODO implement compacter
@@ -86,7 +87,7 @@ struct ac_class
 #define AC_LIFE_REF 3
 #define AC_LIFE_REF8 4
 
-struct ac_class *ac_new_class(struct ac_type *ty, int nbytes, int lifetime,
+struct ac_class *ac_new_class(struct ac_type *ty, UV nbytes, int lifetime,
         SV *metaclass, HV *stash);
 
 ac_object ac_new_object(struct ac_class *cl);
@@ -101,10 +102,10 @@ ac_object ac_forward_object(ac_object o);
 */
 
 /* These should not be assumed to work above 32 */
-UV ac_object_fetch(ac_object o, int bitoff, int count);
-IV ac_object_fetch_signed(ac_object o, int bitoff, int count);
-/* does no error checking, deliberately */
-void ac_object_store(ac_object o, int bitoff, int count, UV val);
+UV ac_object_fetch(ac_object o, UV bitoff, UV count);
+IV ac_object_fetch_signed(ac_object o, UV bitoff, UV count);
+/* does no value checking, deliberately */
+void ac_object_store(ac_object o, UV bitoff, UV count, UV val);
 
 /*
  * Things you can do with a (sub)object of some type.  These functions fall
@@ -116,38 +117,35 @@ void ac_object_store(ac_object o, int bitoff, int count, UV val);
 struct ac_type_ops
 {
     /*
-     * Locate a subobject.  Should croak if the subobject does not exist.  If
-     * the subobject is actually a Perl scalar, it can be returned instead (for
-     * the perl_array and perl_hash types).
+     * Locate a subobject.  Should croak if the subobject does not exist.
      */
-    void (*subobject)(struct ac_type *ty, ac_object obj, int bit_in_obj,
-            SV *name, ac_object *oret, int *bret, struct ac_type **tyret,
-            SV **pret);
+    void (*subobject)(struct ac_type *ty, ac_object obj, UV bit_in_obj,
+            SV *name, ac_object *oret, UV *bret, struct ac_type **tyret);
 
     /*
      * Does a subobject with the given name exist?
      */
-    int (*subobject_exists)(struct ac_type *ty, ac_object obj, int bit_in_obj,
+    int (*subobject_exists)(struct ac_type *ty, ac_object obj, UV bit_in_obj,
             SV *name);
 
     /* TODO - subobject interrogation and editing, for mutable types */
 
     /* Copy a value out of the (sub)object. */
-    void (*scalar_get)(struct ac_type *ty, ac_object obj, int bit_in_obj,
+    void (*scalar_get)(struct ac_type *ty, ac_object obj, UV bit_in_obj,
             SV *ret);
 
     /* Copy in.  Croaks if data validation error. */
-    void (*scalar_put)(struct ac_type *ty, ac_object obj, int bit_in_obj,
+    void (*scalar_put)(struct ac_type *ty, ac_object obj, UV bit_in_obj,
             SV *from);
 
     /*
      * Bring an *uninitialized* block of memory to some zero/default state;
      * it will already have been zeroed.
      */
-    void (*initialize)(struct ac_type *ty, ac_object obj, int bit_in_obj);
+    void (*initialize)(struct ac_type *ty, ac_object obj, UV bit_in_obj);
 
     /* Drop references so an object can be deleted. */
-    void (*destroy)(struct ac_type *ty, ac_object obj, int bit_in_obj);
+    void (*destroy)(struct ac_type *ty, ac_object obj, UV bit_in_obj);
 
     /*
      * Translocate an object while preserving external back references.  This
@@ -156,7 +154,7 @@ struct ac_type_ops
      * when this is called.
      */
     void (*translocate)(struct ac_type *ty, ac_object oldo, ac_object newo,
-            int bit_in_obj);
+            UV bit_in_obj);
 
     /*
      * Generic hook for post-compaction cleanup.  Ref hash tables need to
@@ -167,13 +165,13 @@ struct ac_type_ops
     /*
      * Mark the targets of all pointers which point into GCable zones.
      */
-    void (*mark)(struct ac_type *ty, ac_object obj, int bit_in_obj);
+    void (*mark)(struct ac_type *ty, ac_object obj, UV bit_in_obj);
 
     /*
      * Run all pointers through the forwarding system, in the final phase of
      * the compaction process.
      */
-    void (*forwardize)(struct ac_type *ty, ac_object obj, int bit_in_obj);
+    void (*forwardize)(struct ac_type *ty, ac_object obj, UV bit_in_obj);
 
     /* Convert to a string for diagnostics */
     void (*deparse)(struct ac_type *ty, SV *strbuf);
@@ -187,7 +185,7 @@ struct ac_type_ops
 struct ac_type
 {
     struct ac_type_ops *ops;
-    unsigned int inline_size;
+    UV inline_size;
     unsigned int flags;
 #define AC_INITIALIZE_USED 1
 #define AC_DESTROY_USED 2
@@ -211,6 +209,8 @@ struct ac_type *ac_make_float_type(int expbits, int sigbits);
 struct ac_type *ac_make_nv_type(void);
 struct ac_type *ac_make_iv_type(void);
 struct ac_type *ac_make_uv_type(void);
+struct ac_type *ac_make_numish_type(void);
+struct ac_type *ac_make_intish_type(void);
 
 /* An 8-bit character in some charset. */
 struct ac_type *ac_make_natl_char_type(SV *encode_instance);
@@ -241,27 +241,21 @@ struct ac_type *ac_make_ref_type(void);
 
 struct ac_type *ac_make_weak_ref_type(void);
 
-/* Holds a reference to one SV */
-struct ac_type *ac_make_perl_scalar_type(void);
-
 struct ac_type *ac_make_perl_ref_type(void);
 struct ac_type *ac_make_perl_weakref_type(void);
 
-struct ac_type *ac_make_perl_array_type(void);
-struct ac_type *ac_make_perl_hash_type(void);
-struct ac_type *ac_make_perl_glob_type(void);
 struct ac_type *ac_make_perl_filehandle_ref_type(void);
 
 struct ac_type *ac_make_void_type(void);
 
 /* These functions automatically handle croaking */
 
-void ac_do_subobject(struct ac_type **typ, ac_object **op, int **offp,
+void ac_do_subobject(struct ac_type **typ, ac_object *op, UV *offp,
         SV *selector);
 
-void ac_do_set(struct ac_type *ty, ac_object o, int off, SV *val);
-void ac_do_get(struct ac_type *ty, ac_object o, int off, SV *ret);
+void ac_do_set(struct ac_type *ty, ac_object o, UV off, SV *val);
+void ac_do_get(struct ac_type *ty, ac_object o, UV off, SV *ret);
 
-int ac_child_exists(struct ac_type *ty, ac_object o, int off, SV *sel);
+int ac_child_exists(struct ac_type *ty, ac_object o, UV off, SV *sel);
 
 #endif

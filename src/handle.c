@@ -2,7 +2,7 @@
 #include <perl.h>
 #include "Compact.h"
 
-#define HASHPTR(p,s) (((0x9E3779B9U * PTR2UV(p)) & 0xFFFFFFFFU) >> s)
+#define HASHPTR(p,s) (((0x9E3779B9UL * PTR2UV(p)) & 0xFFFFFFFFUL) >> s)
 
 /*
  * This file implements a system of idiotproof Perl->C handles - scalars which
@@ -92,7 +92,7 @@ SV *ac_rehandle(pTHX_ struct ac_handle_sort *kind, void *val)
 
         /* TODO: rehashing */
 
-        int hash = HASHPTR(val, kind->shift);
+        UV hash = (UV)HASHPTR(val, kind->shift);
         mg->mg_obj = kind->htab[hash];
         kind->htab[hash] = sv;
     }

@@ -102,6 +102,10 @@ ac_object ac_forward_object(ac_object o);
 */
 
 /* These should not be assumed to work above 32 */
+#define AC_IV_BIT (CHAR_BIT * sizeof(IV))
+#define AC_NV_BIT (CHAR_BIT * sizeof(NV))
+#define AC_U32_BIT (CHAR_BIT * sizeof(U32))
+#define AC_U8_BIT (CHAR_BIT * sizeof(U8))
 UV ac_object_fetch(ac_object o, UV bitoff, UV count);
 IV ac_object_fetch_signed(ac_object o, UV bitoff, UV count);
 /* does no value checking, deliberately */

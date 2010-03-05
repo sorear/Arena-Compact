@@ -31,6 +31,8 @@
  * TODO: Abstract the allocation logic and make it threadsafe.
  */
 
+#define AC_PAGE_SIZE 4096 /* NOT getpagesize() */
+
 struct page_header
 {
     struct ac_class *claz;
@@ -45,7 +47,7 @@ static void ac_delete_class(void *clp);
 
 AC_DEFINE_HANDLE_SORT(class, 0, ac_delete_class, 0);
 
-struct ac_class *ac_new_class(struct ac_type *ty, int nbytes, int lifetime,
+struct ac_class *ac_new_class(struct ac_type *ty, UV nbytes, int lifetime,
         SV *metaclass, HV *stash)
 {
     struct ac_class *n;
@@ -85,16 +87,50 @@ void ac_delete_class(void *clp)
     }
 }
 
-static void ac_destroy(ac_object o) {
-    struct ac_class *cl = ac_class_of(o);
+static int allocsize = 8 * AC_PAGE_SIZE;
 
+static void more_pages(void) {
+#ifdef HAS_MMAP
+    struct page_header *newpages;
+    int offs;
+    Mmap_t mmr;
+
+again:
+    mmr = mmap(0, allocsize, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE,
+            -1, 0);
+
+    if (mmr == MAP_FAILED && errno == EINVAL && allocsize)
+    {
+        /* Automatically probe large page sizes */
+        allocsize <<= 1;
+        goto try_again;
+    }
+
+    if (mmr == MAP_FAILED)
+    {
+        croak("mmap failed: %s", strerror(errno));
+    }
+
+    newpages = INT2PTR(struct page_header, mmr);
+
+    for (offs = 0; offs < allocsize; offs += AC_PAGE_SIZE)
+    {
+        struct page_header *np =
+            INT2PTR(struct page_header, PTR2UV(newpages) + offs);
+        np->nextp = free_page;
+        free_page = np;
+    }
 }
 
 static void ac_refill(struct ac_class *cl) {
+    if (!free_page) more_pages();
 }
 
 static void ac_destroy(ac_object o) {
     struct ac_class *cl = ac_class_of(o);
+
+    if (cl->dtype->flags & AC_DESTROY_USED)
+        cl->dtype->ops->destroy(cl->dtype, o, 0);
 
     ac_object_store(o, 0, sizeof(UV) * CHAR_BIT, PTR2UV(cl->freelist_head));
     cl->freelist_head = o;
@@ -148,13 +184,63 @@ ac_object ac_new_object(struct ac_class *cl) {
         default:
             croak("unhandled lifetime");
     }
+
+    if (cl->dtype->flags & AC_INITIALIZE_USED)
+        cl->dtype->ops->initialize(cl->dtype, o, 0);
+
     return o;
 }
 
 void ac_ref_object(ac_object o) {
+    struct ac_class *cl = ac_class_of(o);
+    int old;
+
+    switch (cl->lifetime)
+    {
+        case AC_LIFE_PERL:
+        default:
+            croak("invalid lifetime in ref_object");
+        case AC_LIFE_MANUAL:
+        case AC_LIFE_GC:
+            return;
+        case AC_LIFE_REF:
+            old = ac_object_fetch(o, -AC_U32_BIT, AC_U32_BIT);
+            if (old) ac_object_store(o, -AC_U32_BIT, AC_U32_BIT, old + 1);
+            break;
+        case AC_LIFE_REF8:
+            old = ac_object_fetch(o, -AC_U8_BIT, AC_U8_BIT);
+            if (old) ac_object_store(o, -AC_U8_BIT, AC_8_BIT, old + 1);
+            break;
+    }
+
+    if (old == 0)
+        croak("Too many references created to object");
 }
 
 void ac_unref_object(ac_object o) {
+    struct ac_class *cl = ac_class_of(o);
+    int new;
+
+    switch (cl->lifetime)
+    {
+        case AC_LIFE_PERL:
+        default:
+            croak("invalid lifetime in ref_object");
+        case AC_LIFE_MANUAL:
+        case AC_LIFE_GC:
+            return;
+        case AC_LIFE_REF:
+            ac_object_store(o, -AC_U32_BIT, AC_U32_BIT,
+                    (new = ac_object_fetch(o, -AC_U32_BIT, AC_U32_BIT) - 1));
+            break;
+        case AC_LIFE_REF8:
+            ac_object_store(o, -AC_U8_BIT, AC_U8_BIT,
+                    (new = ac_object_fetch(o, -AC_U8_BIT, AC_U8_BIT) - 1));
+            break;
+    }
+
+    if (!new)
+        ac_destroy(o);
 }
 
 UV ac_object_fetch(ac_object o, UV bitoff, UV count);

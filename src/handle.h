@@ -44,7 +44,7 @@ typedef struct ac_handle_sort
 void *ac_unhandle(pTHX_ ac_handle_sort *bkind, SV *value, void **cookieret,
         const char *err);
 
-SV *ac_rehandle(ac_handle_sort *kind, void *inner);
+SV *ac_rehandle(pTHX_ ac_handle_sort *kind, void *inner);
 
 ac_handle_sort *ac_instance_sort(ac_handle_sort *basic, void *cookie,
         int canonical);

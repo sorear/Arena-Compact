@@ -117,3 +117,22 @@ SV *ac_rehandle(pTHX_ ac_handle_sort *kind, void *val)
 
     return sv;
 }
+
+ac_handle_sort *ac_instance_sort(ac_handle_sort *base, void *cookie, int can)
+{
+    ac_handle_sort *ns;
+    Newx(ns, 1, ac_handle_sort);
+    Copy(ns, base, 1, ac_handle_sort);
+
+    ns->htab = NULL; /* unshare */
+    ns->cookie = cookie;
+    ns->needcanon = can;
+
+    return ns;
+}
+
+void ac_free_sort(ac_handle_sort *in)
+{
+    Safefree(in->htab);
+    Safefree(in);
+}

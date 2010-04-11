@@ -29,11 +29,22 @@ void *ac_unhandle(struct ac_handle_sort *kind, SV *value, const char *err);
 SV *ac_rehandle(struct ac_handle_sort *kind, void *inner);
 
 /*
- * Identifies a single object.  Need not actually be a pointer; our current
- * storage manager uses them, though.  I want to implement 32 bit index
- * object IDs, though, for the sake of 64 bit platforms, eventually.
+ * Identifies a single object.  Do not assume any particular representation
+ * of these, beyond that they are no larger than a UV.
  */
-typedef void *ac_object;
+typedef UV ac_object;
+
+/* Only this many low bits of ac_object matter */
+extern int ac_param_pointer_size;
+
+/* He he he.  I wonder how many compilers will decide the croak is not
+   reachable. */
+#define AC_OVERFLOW_CHECK(x,y) \
+    STMT_START { \
+        if (((UV)(x) + (UV)(y)) < (UV)(x)) \
+            croak("Object is not constructable because its size would " \
+                    "exceed the size of an unsigned integer."); \
+    }
 
 /*
  * A class consists of a type, some metadata controlling handles and allocation
@@ -53,6 +64,7 @@ typedef void *ac_object;
  * fetch per object access.
  */
 struct ac_type; /* forward */
+union ac_page;
 struct ac_class
 {
     struct ac_type *dtype;
@@ -61,12 +73,18 @@ struct ac_class
     HV *stash; /* to bless handles */
     int lifetime;
 
-    void *first_page;
-    void *last_page;
+    union ac_page **data_pages;
+    UV dpa_size;
+    UV num_data_pages;
+
+    int *dirents;
+    int num_dirents;
+    int dirent_ary_size;
+
     UV total_objects;
-    UV total_pages;
-    UV obj_size_bytes;
-    UV obj_alloc_bits;
+
+    UV obj_size_bits;
+    UV obj_overhead_bits;
 
     UV used_objects;
     ac_object freelist_head;
@@ -87,7 +105,7 @@ struct ac_class
 #define AC_LIFE_REF 3
 #define AC_LIFE_REF8 4
 
-struct ac_class *ac_new_class(struct ac_type *ty, UV nbytes, int lifetime,
+struct ac_class *ac_new_class(struct ac_type *ty, UV nbits, int lifetime,
         SV *metaclass, HV *stash);
 
 ac_object ac_new_object(struct ac_class *cl);
@@ -102,10 +120,6 @@ ac_object ac_forward_object(ac_object o);
 */
 
 /* These should not be assumed to work above 32 */
-#define AC_IV_BIT (CHAR_BIT * sizeof(IV))
-#define AC_NV_BIT (CHAR_BIT * sizeof(NV))
-#define AC_U32_BIT (CHAR_BIT * sizeof(U32))
-#define AC_U8_BIT (CHAR_BIT * sizeof(U8))
 UV ac_object_fetch(ac_object o, UV bitoff, UV count);
 IV ac_object_fetch_signed(ac_object o, UV bitoff, UV count);
 /* does no value checking, deliberately */

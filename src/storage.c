@@ -14,13 +14,15 @@
  * premature time optimization :).  Since an object is only a sequence of bits,
  * we can do some interesting things with them.
  *
- * A single page (we currently hardcode 4K, same as hardware pages on x86, but
- * it ultimately doesn't matter) contains 4096 byets, of which we reserve 16
- * for a page header.  Given an address into a page, you can get at the page
- * header by bit manipulation of the address; this is crucial in the overhead
- * reduction strategy, as it allows us to store type information once per 4KB
- * instead of once per object, a huge savings for small objects.  (Larger
- * objects benefit from the bounding of fragmentation instead.)
+ * This version of the storage manager identifies objects by numbers.  The top
+ * 20 bits of the identifier indexes into group_table, which is used to
+ * interleave identifier allocation between classes; once the classes' own
+ * number is obtained, it can be used to find the correct data page.  Pages are
+ * 32,768 bits in size (incidentally the same as hardware pages on x86).  This
+ * is crucial in the overhead reduction strategy, as it allows us to store type
+ * information once per 4KB instead of once per object, a huge savings for
+ * small objects.  (Larger objects benefit from the bounding of fragmentation
+ * instead.)
  *
  * In general, an integral number of objects do not fit on one page.  To avoid
  * fragmentation, we put pages into an ordered sequence, and allow objects to
@@ -31,23 +33,51 @@
  * TODO: Abstract the allocation logic and make it threadsafe.
  */
 
-#define AC_PAGE_SIZE 4096 /* NOT getpagesize() */
+#define AC_PAGE_BYTES 4096
 
-struct page_header
-{
-    struct ac_class *claz;
-    struct page_header *nextp;
-    struct page_header *prevp;
-    UV serialno;
+union ac_page {
+    union ac_page *next;
+    char payload[AC_PAGE_BYTES];
 };
 
-struct page_header *free_page;
+static union ac_page *free_page;
+
+static void ac_push_free_page(union ac_page *pb)
+{
+    pb->next = free_page;
+    free_page = pb;
+}
+
+static union ac_page *ac_get_free_page()
+{
+    union ac_page *ret;
+
+    if (!free_page)
+    {
+        union ac_page *rq;
+        int i;
+
+        Newx(rq, 255, union ac_page);
+
+        for (i = 0; i < 255; i++)
+            ac_push_free_page(&rq[i]);
+    }
+
+    ret = free_page;
+    free_page = ret->next;
+    return free_page;
+}
 
 static void ac_delete_class(void *clp);
 
 AC_DEFINE_HANDLE_SORT(class, 0, ac_delete_class, 0);
 
-struct ac_class *ac_new_class(struct ac_type *ty, UV nbytes, int lifetime,
+int ac_param_pointer_size = 32;
+
+/* TODO Abstract the arena into an object - this, I think, will solve all the
+   annoying threading questions, and give us A::SC functionality for free */
+
+struct ac_class *ac_new_class(struct ac_type *ty, UV nbits, int lifetime,
         SV *metaclass, HV *stash)
 {
     struct ac_class *n;
@@ -63,67 +93,71 @@ struct ac_class *ac_new_class(struct ac_type *ty, UV nbytes, int lifetime,
     SvREFCNT_inc((SV*)metaclass);
     n->lifetime = lifetime;
 
-    n->obj_size_bytes = nbytes;
+    n->obj_overhead_bits =
+        (lifetime == AC_LIFE_REF8) ? 8 :
+        (lifetime == AC_LIFE_REF) ? 32 : 0;
+
+    n->obj_size_bits = nbits + n->obj_overhead_bits;
+
+    /* Leave room for the freelist pointer */
+    if (n->obj_size_bits < ac_param_pointer_size)
+        n->obj_size_bits = ac_param_pointer_size;
+
+    /* Prevent object count from reaching UV_MAX */
+    if (n->obj_size_bits < CHAR_BIT)
+        n->obj_size_bits = CHAR_BIT;
+
+    AC_OVERFLOW_CHECK(n->obj_size_bits, n->obj_overhead_bits);
 
     return n;
 }
 
+struct ac_dirent
+{
+    struct ac_class *cl;
+    int objnum;
+};
+
+#define OBJS_PER_DIRENT 8192
+#define DIRENT_SHIFT 13
+
+/* entry 0 is an unallocated sentinel */
+static struct ac_dirent *directory;
+static UV dirfree = 0;
+
 void ac_delete_class(void *clp)
 {
     struct ac_class *cl = (struct ac_class *) cl;
-    struct page_header *ph, *nph;
+    int ix;
 
     SvREFCNT_dec(cl->dtype->reflection);
     SvREFCNT_dec(cl->metaclass);
     SvREFCNT_dec((SV*)cl->stash);
 
-    ph = (struct page_header *)cl->first;
+    for (ix = 0; ix < cl->num_data_pages; ix++)
+        ac_push_free_page(cl->data_pages[ix]);
 
-    while (ph) {
-        nph = ph->nextp;
-        ph->nextp = free_page;
-        free_page = ph;
-        ph = nph;
+    for (ix = 0; ix < cl->num_dirents; ix++)
+    {
+        directory[cl->dirents[ix]].objnum = dirfree;
+        dirfree = cl->dirents[ix];
     }
+
+    Safefree(cl->data_pages);
+    Safefree(cl->dirents);
 }
 
-static int allocsize = 8 * AC_PAGE_SIZE;
+static void ac_push_free_obj(ac_object o) {
+    struct ac_class *cl = ac_class_of(o);
 
-static void more_pages(void) {
-#ifdef HAS_MMAP
-    struct page_header *newpages;
-    int offs;
-    Mmap_t mmr;
-
-again:
-    mmr = mmap(0, allocsize, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE,
-            -1, 0);
-
-    if (mmr == MAP_FAILED && errno == EINVAL && allocsize)
-    {
-        /* Automatically probe large page sizes */
-        allocsize <<= 1;
-        goto try_again;
-    }
-
-    if (mmr == MAP_FAILED)
-    {
-        croak("mmap failed: %s", strerror(errno));
-    }
-
-    newpages = INT2PTR(struct page_header, mmr);
-
-    for (offs = 0; offs < allocsize; offs += AC_PAGE_SIZE)
-    {
-        struct page_header *np =
-            INT2PTR(struct page_header, PTR2UV(newpages) + offs);
-        np->nextp = free_page;
-        free_page = np;
-    }
+    ac_object_store(o, -ac_param_pointer_size,
+            ac_param_pointer_size, cl->freelist_head);
+    cl->freelist_head = o;
 }
 
-static void ac_refill(struct ac_class *cl) {
-    if (!free_page) more_pages();
+static void ac_add_page(struct ac_class *cl) {
+    int old_complete_objects = cl->num_data_pages * AC_PAGE_BITS /
+    union ac_page *np = ac_get_free_page();
 }
 
 static void ac_destroy(ac_object o) {
@@ -132,8 +166,8 @@ static void ac_destroy(ac_object o) {
     if (cl->dtype->flags & AC_DESTROY_USED)
         cl->dtype->ops->destroy(cl->dtype, o, 0);
 
-    ac_object_store(o, 0, sizeof(UV) * CHAR_BIT, PTR2UV(cl->freelist_head));
-    cl->freelist_head = o;
+    ac_push_free_obj(o);
+
     cl->used_objects--;
     SvREFCNT_dec(cl->reflection);
 }

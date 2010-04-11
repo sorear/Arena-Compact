@@ -1,6 +1,7 @@
 #include <EXTERN.h>
 #include <perl.h>
-#include "Compact.h"
+
+#include "handle.h"
 
 #define HASHPTR(p,s) (((0x9E3779B9UL * PTR2UV(p)) & 0xFFFFFFFFUL) >> s)
 
@@ -17,7 +18,8 @@
 
 static int ac_free_handle_magic(pTHX_ SV *handle, MAGIC *mg);
 
-static MAGIC *ac_find_magic(SV *scalar, ac_handle_sort *btype, const char *crk)
+static MAGIC *ac_find_magic(pTHX_ SV *scalar, ac_handle_sort *btype,
+        const char *crk)
 {
     MAGIC *mgp = SvMAGICAL(scalar) ? SvMAGIC(scalar) : NULL;
 
@@ -45,7 +47,7 @@ static int ac_free_handle_magic(pTHX_ SV *handle, MAGIC *mg)
     ac_handle_sort *hs = (ac_handle_sort *)(mg->mg_virtual);
 
     if (hs->needcanon) {
-        SV **chainp = &(hs->htab[HASHPTR(mg->ptr, hs->shift)]);
+        SV **chainp = &(hs->htab[HASHPTR(mg->mg_ptr, hs->shift)]);
 
         while (*chainp) {
             if (*chainp == handle) {
@@ -61,7 +63,7 @@ static int ac_free_handle_magic(pTHX_ SV *handle, MAGIC *mg)
         hs->hused--;
     }
 
-    hs->deletehandle(aTHX_ mg->ptr);
+    hs->deletehandle(aTHX_ mg->mg_ptr);
 
     return 0;
 }
@@ -87,7 +89,7 @@ SV *ac_rehandle(pTHX_ ac_handle_sort *kind, void *val)
         SV *itr = kind->htab[HASHPTR(val, kind->shift)];
 
         while (itr) {
-            MAGIC *mgi = ac_find_magic(aTHX_ itr, &kind->magic_type,
+            MAGIC *mgi = ac_find_magic(aTHX_ itr, kind,
                     "corruption in Arena::Compact hash chain");
             if (mgi->mg_ptr == val)
                 return SvREFCNT_inc(itr);
@@ -113,7 +115,7 @@ SV *ac_rehandle(pTHX_ ac_handle_sort *kind, void *val)
     }
 
     if (kind->setuphandle)
-        kind->setuphandle(sv, val);
+        kind->setuphandle(aTHX_ sv, val);
 
     return sv;
 }

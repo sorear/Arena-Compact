@@ -1,33 +1,6 @@
 #ifndef ARENA_COMPACT_H
 #define ARENA_COMPACT_H
 
-struct ac_handle_sort
-{
-    MGVTBL magic_type;
-
-    void (*setuphandle)(SV *handle, void *obj);
-    void (*deletehandle)(void *obj);
-
-    int needcanon;
-
-    SV **htab;
-    int shift;
-    UV hused;
-};
-
-int ac_free_handle_magic(pTHX_ SV* sv, MAGIC* mg);
-
-#define AC_DEFINE_HANDLE_SORT(name, newfn, delfn, canon) \
-    struct ac_handle_sort ac_##name = { \
-        { 0, 0, 0, 0, ac_free_handle_magic, 0, 0, 0 }, \
-        newfn, delfn, canon, 0, 0, 0 }
-
-extern struct ac_handle_sort ac_hs_object, ac_hs_class, ac_hs_type;
-
-void *ac_unhandle(struct ac_handle_sort *kind, SV *value, const char *err);
-
-SV *ac_rehandle(struct ac_handle_sort *kind, void *inner);
-
 /*
  * Identifies a single object.  Do not assume any particular representation
  * of these, beyond that they are no larger than a UV.

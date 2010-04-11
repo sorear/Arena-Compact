@@ -18,8 +18,6 @@ typedef struct ac_handle_sort
     UV hused;
 } ac_handle_sort;
 
-int ac_free_handle_magic(pTHX_ SV* sv, MAGIC* mg);
-
 #if MGf_COPY
 #define AC_NULL_COPY NULL,
 #else
@@ -41,9 +39,9 @@ int ac_free_handle_magic(pTHX_ SV* sv, MAGIC* mg);
 #define AC_DEFINE_HANDLE_SORT(name, newfn, delfn) \
     struct ac_handle_sort ac_##name = { \
         { 0, 0, 0, 0, ac_free_handle_magic, AC_NULL_COPY, AC_NULL_DUP, \
-          AC_NULL_LOCAL}, newfn, delfn, 0, 0, 0, 0, 0, 0 }
+          AC_NULL_LOCAL}, newfn, delfn, &ac_##name, 0, 0, 0, 0, 0 }
 
-void *ac_unhandle(ac_handle_sort *bkind, SV *value, void **cookieret,
+void *ac_unhandle(pTHX_ ac_handle_sort *bkind, SV *value, void **cookieret,
         const char *err);
 
 SV *ac_rehandle(ac_handle_sort *kind, void *inner);

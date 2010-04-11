@@ -15,14 +15,24 @@
  * C-side data, and mg_obj points to the next SV in the hash chain.
  */
 
-static MAGIC *ac_find_magic(SV *scalar, MGVTBL *vt, const char *crk)
-{
-    MAGIC *mgp;
+static int ac_free_handle_magic(pTHX_ SV *handle, MAGIC *mg);
 
-    if (SvMAGICAL(scalar))
-        for (mgp = SvMAGIC(scalar); mgp; mgp = mgp->mg_moremagic)
-            if (mgp->mg_virtual == vt)
-                return mgp;
+static MAGIC *ac_find_magic(SV *scalar, ac_handle_sort *btype, const char *crk)
+{
+    MAGIC *mgp = SvMAGICAL(scalar) ? SvMAGIC(scalar) : NULL;
+
+    for (; mgp; mgp = mgp->mg_moremagic)
+    {
+        ac_handle_sort *spec;
+
+        if (mgp->mg_virtual->svt_free != ac_free_handle_magic)
+            continue;
+
+        spec = (ac_handle_sort *) (mgp->mg_virtual);
+
+        if (spec->eq_class == btype->eq_class)
+            return mgp;
+    }
 
     if (crk)
         croak("%s", crk);
@@ -30,9 +40,9 @@ static MAGIC *ac_find_magic(SV *scalar, MGVTBL *vt, const char *crk)
     return NULL;
 }
 
-int ac_free_handle_magic(pTHX_ SV *handle, MAGIC *mg)
+static int ac_free_handle_magic(pTHX_ SV *handle, MAGIC *mg)
 {
-    struct ac_handle_sort *hs = (struct ac_handle_sort *)(mg->mg_virtual);
+    ac_handle_sort *hs = (ac_handle_sort *)(mg->mg_virtual);
 
     if (hs->needcanon) {
         SV **chainp = &(hs->htab[HASHPTR(mg->ptr, hs->shift)]);
@@ -43,7 +53,7 @@ int ac_free_handle_magic(pTHX_ SV *handle, MAGIC *mg)
                 break;
             }
 
-            MAGIC *mgi = ac_find_magic(aTHX_ *chainp, &hs->magic_type,
+            MAGIC *mgi = ac_find_magic(aTHX_ *chainp, hs,
                     "internal error: corrupted magic chain in Arena::Compact");
 
             chainp = (SV **) &(mgi->mg_obj);
@@ -52,17 +62,22 @@ int ac_free_handle_magic(pTHX_ SV *handle, MAGIC *mg)
     }
 
     hs->deletehandle(aTHX_ mg->ptr);
+
+    return 0;
 }
 
-void *ac_unhandle(pTHX_ struct ac_handle_sort *kind, SV *val,
+void *ac_unhandle(pTHX_ ac_handle_sort *kind, SV *val, void **cookieret,
         const char *autocroak)
 {
-    MAGIC *mg = ac_find_magic(aTHX_ val, &kind->magic_type, autocroak);
+    MAGIC *mg = ac_find_magic(aTHX_ val, kind, autocroak);
+
+    if (mg && cookieret)
+        *cookieret = ((ac_handle_sort *)(mg->mg_virtual))->cookie;
 
     return !mg ? NULL : mg->mg_ptr;
 }
 
-SV *ac_rehandle(pTHX_ struct ac_handle_sort *kind, void *val)
+SV *ac_rehandle(pTHX_ ac_handle_sort *kind, void *val)
 {
     SV *sv;
     MAGIC *mg;
